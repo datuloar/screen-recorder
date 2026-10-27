@@ -1,9 +1,12 @@
 import contextlib
 import copy
 import hashlib
+import json
 import os
 from pathlib import Path
+import plistlib
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -38,19 +41,23 @@ def repository():
             os.chdir(old_cwd)
 
 
+def package_files(root):
+    for name in ("README.md", "LICENSE", "THIRDPARTY-NOTICES.md", "docs/USAGE.md", "docs/BUILDING.md",
+                 "docs/ARCHITECTURE.md", "docs/DESIGN.md", "docs/PERFORMANCE.md", "docs/benchmarks/windows-1080p.json",
+                 "docs/STATUS.md", "docs/ui-checks.json", "docs/screenshots/record.png",
+                 "vendor/ffmpeg-8.0.tar.xz", "scripts/media-source.json"):
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("package fixture", encoding="utf-8")
+    (root / "scripts/license-sources.json").write_text("{}", encoding="utf-8")
+    (root / "scripts/build-media.sh").write_text("build fixture", encoding="utf-8")
+    (root / "vendor/ffmpeg-configure.txt").write_text('./configure --prefix=/private/build/media --disable-network\n', encoding="utf-8")
+
+
 class ReleaseTests(unittest.TestCase):
     def test_package_includes_user_docs_and_excludes_development_journals(self):
         with repository() as root:
-            for name in ("README.md", "LICENSE", "THIRDPARTY-NOTICES.md", "docs/USAGE.md", "docs/BUILDING.md",
-                         "docs/ARCHITECTURE.md", "docs/DESIGN.md", "docs/PERFORMANCE.md", "docs/benchmarks/windows-1080p.json",
-                         "docs/STATUS.md", "docs/ui-checks.json", "docs/screenshots/record.png",
-                         "vendor/ffmpeg-8.0.tar.xz", "vendor/ffmpeg-configure.txt", "scripts/media-source.json"):
-                path = root / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text("package fixture")
-            (root / "scripts/license-sources.json").write_text("{}")
-            (root / "scripts/build-media.sh").write_text("build fixture")
-            (root / "vendor/ffmpeg-configure.txt").write_text('./configure --prefix=/private/build/media --disable-network\n')
+            package_files(root)
             stage = root / "dist/package"
             stage.mkdir()
             with patch.object(package.subprocess, "check_output", return_value='{"packages": []}'):
@@ -62,6 +69,60 @@ class ReleaseTests(unittest.TestCase):
             self.assertTrue((stage / "docs/screenshots/record.png").is_file())
             self.assertFalse((stage / "docs/STATUS.md").exists())
             self.assertFalse((stage / "docs/ui-checks.json").exists())
+
+    def test_cargo_metadata_utf8_survives_a_legacy_windows_default_encoding(self):
+        with repository() as root:
+            package_files(root)
+            stage = root / "dist/package"
+            stage.mkdir()
+            payload = json.dumps({"packages": [], "description": "\u0401 metadata"}, ensure_ascii=False).encode("utf-8")
+            command = [sys.executable, "-c", f"import sys; sys.stdout.buffer.write({payload!r})"]
+            check_output = subprocess.check_output
+
+            def cargo_output(arguments, **options):
+                self.assertEqual(arguments[:2], ["cargo", "metadata"])
+                return check_output(command, **options)
+
+            with patch("subprocess._text_encoding", return_value="cp1252"):
+                with self.assertRaises(UnicodeDecodeError):
+                    check_output(command, text=True)
+                with patch.object(package.subprocess, "check_output", side_effect=cargo_output):
+                    package.common_files(stage, ["x86_64-pc-windows-msvc"])
+            self.assertEqual(json.loads((stage / "third-party/rust/index.json").read_text(encoding="utf-8")), [])
+
+    def test_macos_universal_binaries_are_inputs_to_lipo_architecture_verification(self):
+        with repository() as root:
+            for arch in ("arm64", "x64"):
+                folder = root / f"vendor/macos-{arch}"
+                folder.mkdir(parents=True)
+                for name in ("screen-recorder", "libRecorderBridge.dylib", "ffmpeg", "ffprobe"):
+                    (folder / name).write_bytes(arch.encode())
+                (folder / "configure.txt").write_text("./configure --prefix=/build/media --disable-network\n", encoding="utf-8")
+            verified = []
+
+            def native_command(arguments, **options):
+                self.assertTrue(options["check"])
+                if arguments[0] == "lipo" and arguments[1] == "-create":
+                    target = Path(arguments[arguments.index("-output") + 1])
+                    target.write_bytes(Path(arguments[2]).read_bytes() + Path(arguments[3]).read_bytes())
+                elif arguments[0] == "lipo":
+                    self.assertTrue(Path(arguments[1]).is_file(), "lipo expects the input file before the variadic architecture list")
+                    self.assertEqual(arguments[2:], ["-verify_arch", "arm64", "x86_64"])
+                    self.assertEqual(Path(arguments[1]).read_bytes(), b"arm64x64")
+                    verified.append(Path(arguments[1]).name)
+                else:
+                    self.assertEqual(arguments[:4], ["codesign", "--force", "--deep", "--sign"])
+                return subprocess.CompletedProcess(arguments, 0)
+
+            def user_files(stage, targets):
+                (stage / "third-party").mkdir()
+
+            with patch.object(package.subprocess, "run", side_effect=native_command), patch.object(package, "common_files", side_effect=user_files):
+                package.macos()
+            self.assertEqual(set(verified), {"screen-recorder", "libRecorderBridge.dylib", "ffmpeg", "ffprobe"})
+            with (root / "dist/Screen Recorder.app/Contents/Info.plist").open("rb") as stream:
+                info = plistlib.load(stream)
+            self.assertEqual(info["CFBundleShortVersionString"], "0.1.0")
 
     def test_media_configuration_preserves_flags_without_build_directory(self):
         with repository() as root:

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def version():
-    return tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+    return tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["workspace"]["package"]["version"]
 
 
 def copy_media_configuration(source, destination):
@@ -44,9 +44,9 @@ def common_files(stage, targets):
     shutil.copy2(ROOT / "scripts/build-media.sh", source)
     packages = {}
     for target in targets:
-        metadata = json.loads(subprocess.check_output(["cargo", "metadata", "--locked", "--format-version", "1", "--filter-platform", target], cwd=ROOT, text=True))
+        metadata = json.loads(subprocess.check_output(["cargo", "metadata", "--locked", "--format-version", "1", "--filter-platform", target], cwd=ROOT, encoding="utf-8"))
         packages.update({package["id"]: package for package in metadata["packages"]})
-    supplemental = json.loads((ROOT / "scripts/license-sources.json").read_text())
+    supplemental = json.loads((ROOT / "scripts/license-sources.json").read_text(encoding="utf-8"))
     rust_licenses = source / "rust"
     rust_licenses.mkdir()
     index = []
@@ -77,7 +77,7 @@ def common_files(stage, targets):
             cache.parent.mkdir(parents=True, exist_ok=True)
             cache.write_bytes(data)
             (destination / "LICENSE.txt").write_bytes(data)
-            (destination / "license-source.json").write_text(json.dumps(spec, indent=2) + "\n")
+            (destination / "license-source.json").write_text(json.dumps(spec, indent=2) + "\n", encoding="utf-8")
         if package["license"] and "MPL-2.0" in package["license"]:
             shutil.copytree(directory, source / "rust-source" / name, ignore=shutil.ignore_patterns(".cargo-ok"))
         index.append({"name": package["name"], "version": package["version"], "license": package["license"], "repository": package["repository"]})
@@ -126,7 +126,7 @@ def macos():
     for name, target in binaries:
         subprocess.run(["lipo", "-create", str(ROOT / "vendor/macos-arm64" / name), str(ROOT / "vendor/macos-x64" / name), "-output", str(target)], check=True)
         target.chmod(0o755)
-        subprocess.run(["lipo", "-verify_arch", "arm64", "x86_64", str(target)], check=True)
+        subprocess.run(["lipo", str(target), "-verify_arch", "arm64", "x86_64"], check=True)
     with (contents / "Info.plist").open("wb") as output:
         plistlib.dump({
             "CFBundleIdentifier": "dev.screenrecorder.desktop",
@@ -154,7 +154,7 @@ def notes(tag, previous=None):
     if tag != f"v{version()}":
         raise RuntimeError(f"Tag {tag} does not match Cargo version {version()}")
     rev = f"{previous}..{tag}" if previous else tag
-    log = subprocess.check_output(["git", "log", "--format=%s", rev], text=True)
+    log = subprocess.check_output(["git", "log", "--format=%s", rev], encoding="utf-8")
     groups = {"Added": [], "Fixed": [], "Changed": []}
     for subject in log.splitlines():
         if subject.startswith("chore(release):"):
