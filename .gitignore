@@ -3,6 +3,7 @@
 /vendor/
 *.partial.mp4
 *.mp4
+!/scripts/fixtures/browser.mp4
 *.mov
 *.mkv
 *.wav

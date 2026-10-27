@@ -468,6 +468,16 @@ async function fixture() {
       await page.evaluate(()=>{qa.fail='capture_controls_state';qa.emit('capture-controls-refresh');});await page.getByText('Reconnect',{exact:true}).waitFor();
       await click('Reconnect');await page.waitForFunction(()=>document.querySelector('#capture-retry').hidden);assert.deepEqual(errors,[]);
     });
+    await check('compact shortcuts display Command on macOS',async()=>{
+      await page.addInitScript(()=>{
+        Object.defineProperty(navigator,'platform',{value:'MacIntel',configurable:true});
+        qa.settings.stop_hotkey='Super+Shift+F10';qa.settings.pause_hotkey='Super+Shift+F11';
+      });
+      await page.goto('http://screen-recorder.test/capture.html');
+      await page.getByText('Recording finished',{exact:true}).waitFor();
+      assert.equal(await page.locator('#capture-pause').getAttribute('title'),'Pause / resume: Shift + ⌘ Cmd + F11');
+      assert.equal(await page.locator('#capture-stop').getAttribute('title'),'Stop and save: Shift + ⌘ Cmd + F10');
+    });
     await check('compact panel reconnects status events after initialization failure',async()=>{
       await page.addInitScript(()=>qa.failListen='capture-status');await page.goto('http://screen-recorder.test/capture.html');
       await page.getByText('Reconnect',{exact:true}).waitFor();assert.equal(await page.locator('#capture-pause').isDisabled(),true);

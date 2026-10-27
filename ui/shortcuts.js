@@ -18,7 +18,7 @@ export function normalizeShortcut(value) {
   const code=/^[a-z]$/i.test(key)?`Key${key.toUpperCase()}`:/^\d$/.test(key)?`Digit${key}`:key;
   return [...order.filter(mod=>mods.includes(mod)),code.toUpperCase()].join('+');
 }
-export function shortcutLabel(value,mac=false) {
+export function shortcutLabel(value,mac=/Mac/.test(globalThis.navigator?.platform || '')) {
   const names={Control:'Ctrl',Super:mac?'⌘ Cmd':'Win',Alt:mac?'Option':'Alt',PRINTSCREEN:'Print Screen',SPACE:'Space',ARROWLEFT:'←',ARROWRIGHT:'→',ARROWUP:'↑',ARROWDOWN:'↓'};
   return normalizeShortcut(value).split('+').map(key=>names[key]||key.replace(/^KEY|^DIGIT/,'')).join(' + ');
 }

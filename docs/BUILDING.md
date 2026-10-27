@@ -40,10 +40,10 @@ cd scripts
 npm ci
 npx playwright install chromium
 cd ..
-node scripts/test-ui.cjs target/ui-checks /path/to/fixture.mp4
+node scripts/test-ui.cjs target/ui-checks scripts/fixtures/browser.mp4
 ```
 
-The fixture must contain four seconds of 640×360 video at 30 FPS with an audio track. CI generates it with FFmpeg. Set `PLAYWRIGHT_CHANNEL=msedge` to use installed Microsoft Edge instead of bundled Chromium. Browser checks exercise the real frontend with a simulated native bridge; they do not replace native capture tests.
+The committed synthetic fixture contains four seconds of 640×360 video at 30 FPS with an audio track. CI uses Chrome already installed in the Ubuntu runner. Set `PLAYWRIGHT_CHANNEL=msedge` or `chrome` to use an installed browser instead of bundled Chromium. Browser checks exercise the real frontend with a simulated native bridge; they do not replace native capture tests. See the [fixture notes](https://github.com/datuloar/screen-recorder/tree/main/scripts/fixtures) for generation commands.
 
 ## Packages
 
