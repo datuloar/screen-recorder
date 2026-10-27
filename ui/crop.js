@@ -1,6 +1,7 @@
+import { t } from './i18n.js';
 import {fitRegion,dragRegion} from './model.js';
 
-const make=(tag,className,text)=>{const node=document.createElement(tag);node.className=className;if(text)node.textContent=text;return node;};
+const make=(tag,className,text)=>{const node=document.createElement(tag);node.className=className;if(text)node.textContent=t(text);return node;};
 const sides=[['nw','Top left corner'],['n','Top edge'],['ne','Top right corner'],['e','Right edge'],['se','Bottom right corner'],['s','Bottom edge'],['sw','Bottom left corner'],['w','Left edge']];
 
 export class CropEditor {
@@ -12,13 +13,13 @@ export class CropEditor {
     const title=make('h2','','Crop video');title.id='crop-title';
     const hint=make('p','muted','Drag over the video to select what to keep. Move the frame or resize its edges.');hint.id='crop-help';
     this.stage=make('div','crop-stage');this.stage.style.aspectRatio=`${width}/${height}`;this.stage.style.width=`min(100%, calc(52dvh * ${width/height}))`;
-    this.stage.tabIndex=0;this.stage.setAttribute('aria-label','Video crop');this.stage.setAttribute('aria-describedby','crop-help');
+    this.stage.tabIndex=0;this.stage.setAttribute('aria-label',t('Video crop'));this.stage.setAttribute('aria-describedby','crop-help');
     const layer=make('div','crop-video-layer');layer.append(video);this.stage.append(layer);
     Object.assign(video.style,{position:'absolute',width:'100%',height:'100%',left:'0',top:'0',objectFit:'fill'});
     this.shades=Array.from({length:4},()=>{const shade=make('div','crop-shade');this.stage.append(shade);return shade;});
-    this.box=make('div','crop-box');this.box.tabIndex=0;this.box.setAttribute('role','group');this.box.setAttribute('aria-label','Crop frame. Arrow keys move the frame');
+    this.box=make('div','crop-box');this.box.tabIndex=0;this.box.setAttribute('role','group');this.box.setAttribute('aria-label',t('Crop frame. Arrow keys move the frame'));
     for(const [side,label] of sides){
-      const handle=make('button',`crop-handle ${side}`);handle.type='button';handle.dataset.edge=side;handle.setAttribute('aria-label',label);handle.title=label;
+      const handle=make('button',`crop-handle ${side}`);handle.type='button';handle.dataset.edge=side;handle.setAttribute('aria-label',t(label));handle.title=t(label);
       handle.addEventListener('keydown',event=>this.key(event,side));this.box.append(handle);
     }
     this.box.addEventListener('keydown',event=>{if(event.target===this.box)this.key(event,'move');});this.stage.append(this.box);
@@ -42,14 +43,14 @@ export class CropEditor {
     this.stage.addEventListener('pointercancel',()=>this.cancelDrag());
     this.stage.addEventListener('lostpointercapture',()=>this.cancelDrag());
     this.ready=()=>{this.available=video.readyState>=2 && !video.seeking;this.state.hidden=this.available;this.draw();};
-    this.failed=()=>{this.available=false;this.state.hidden=false;this.state.textContent='Could not load the frame. Close this dialog and try another video.';this.draw();};
+    this.failed=()=>{this.available=false;this.state.hidden=false;this.state.textContent=t('Could not load the frame. Close this dialog and try another video.');this.draw();};
     video.addEventListener('loadeddata',this.ready);video.addEventListener('seeked',this.ready);video.addEventListener('error',this.failed);
     document.body.append(this.dialog);this.dialog.showModal();this.ready();this.stage.focus();
   }
   button(label,action){const button=make('button','',label);button.type='button';button.onclick=action;return button;}
   draw() {
     const r=this.rect;this.box.hidden=!r;this.shades.forEach(shade=>shade.hidden=!r);this.apply.disabled=!r || !this.available;
-    this.status.textContent=r?`${r.width} × ${r.height} px · position ${r.x}, ${r.y}`:'Select the part of the video to keep';
+    this.status.textContent=r?t('{width} × {height} px · position {x}, {y}',r):t('Select the part of the video to keep');
     if(!r)return;
     const x=r.x/this.width*100,y=r.y/this.height*100,w=r.width/this.width*100,h=r.height/this.height*100;
     Object.assign(this.box.style,{left:`${x}%`,top:`${y}%`,width:`${w}%`,height:`${h}%`});

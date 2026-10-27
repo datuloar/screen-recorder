@@ -1,10 +1,11 @@
+import { t, errorText } from './i18n.js';
 import {duration,seconds,snapTime,nearestPoint} from './model.js';
 import {Filmstrip} from './filmstrip.js';
 
 const element = (tag, className, text) => {
   const node = document.createElement(tag);
   if (className) node.className = className;
-  if (text) node.textContent = text;
+  if (text) node.textContent = t(text);
   return node;
 };
 
@@ -12,20 +13,20 @@ export class Timeline {
   constructor({fps,source,onSeek,onEdit,onSplit,onError,onPause,onPreview,onExport}) {
     Object.assign(this,{fps,onSeek,onEdit,onSplit,onError,onPause,onPreview,onExport});
     this.zoom = 1; this.selection = null; this.at = 0; this.busy = false;
-    this.snapping=true;
+    this.snapping=true;this.loopPreview=false;
     this.filmstrip=new Filmstrip(source);
     this.element = element('section','timeline-editor');
-    this.element.setAttribute('aria-label','Timeline');
+    this.element.setAttribute('aria-label',t('Timeline'));
     const header = element('div','timeline-heading');
     header.append(element('h2','','Timeline'));
     this.zoomInput = document.createElement('input');
     Object.assign(this.zoomInput,{type:'range',min:1,max:16,step:0.5,value:1});
-    this.zoomInput.setAttribute('aria-label','Timeline zoom');
+    this.zoomInput.setAttribute('aria-label',t('Timeline zoom'));
     this.zoomText = element('output','','100%');
     this.zoomInput.oninput = () => this.setZoom(Number(this.zoomInput.value));
     const zoom = element('div','timeline-zoom');
     this.zoomSelectionButton=this.action('Zoom to selection',()=>this.zoomSelection());
-    this.zoomSelectionButton.textContent='Selection';this.zoomSelectionButton.setAttribute('aria-label','Zoom to selection');
+    this.zoomSelectionButton.textContent=t('Selection');this.zoomSelectionButton.setAttribute('aria-label',t('Zoom to selection'));
     zoom.append(this.action('Fit',()=>this.setZoom(1)),this.zoomSelectionButton,this.zoomInput,this.zoomText);header.append(zoom);
     this.toolbar = element('div','timeline-actions');
     this.splitButton = this.action('Split at playhead',()=>onSplit(this.at));
@@ -33,20 +34,20 @@ export class Timeline {
     this.keepButton = this.action('Keep selection',()=>this.edit(true));
     this.clearButton = this.action('Clear selection',()=>this.select(null));
     this.snapButton=this.action('Snap',()=>{this.snapping=!this.snapping;this.snapButton.setAttribute('aria-pressed',String(this.snapping));});
-    this.snapButton.setAttribute('aria-pressed','true');this.snapButton.title='Snap selection edges to cuts and the playhead. Hold Alt to disable temporarily.';
+    this.snapButton.setAttribute('aria-pressed','true');this.snapButton.title=t('Snap selection edges to cuts and the playhead. Hold Alt to disable temporarily.');
     this.toolbar.append(this.splitButton,this.deleteButton,this.keepButton,this.snapButton);
     this.scroller = element('div','timeline-scroll');
     this.scroller.tabIndex = 0;
-    this.scroller.setAttribute('aria-label','Video timeline. Click the ruler to seek. Drag across the track to select.');
+    this.scroller.setAttribute('aria-label',t('Video timeline. Click the ruler to seek. Drag across the track to select.'));
     this.canvas = element('div','timeline-canvas');
     this.ruler = element('div','timeline-ruler');
     this.track = element('div','timeline-track');
-    this.track.setAttribute('aria-label','Video clips');
+    this.track.setAttribute('aria-label',t('Video clips'));
     this.range = element('div','timeline-range');this.range.hidden = true;
     this.handles = ['start','end'].map(side=>{
       const handle = element('div',`timeline-handle ${side}`);
       handle.tabIndex = 0;handle.setAttribute('role','slider');handle.dataset.edge=side;
-      handle.setAttribute('aria-label',side==='start'?'Selection start':'Selection end');
+      handle.setAttribute('aria-label',t(side==='start'?'Selection start':'Selection end'));
       handle.addEventListener('keydown',event=>this.handleKey(event,side));
       this.range.append(handle);return handle;
     });
@@ -55,9 +56,12 @@ export class Timeline {
     this.canvas.append(this.ruler,this.track,this.range,this.playhead,this.snapGuide);this.scroller.append(this.canvas);
     const selectionRow = element('div','timeline-selection-summary');
     this.previewButton=this.action('Preview selection',()=>this.onPreview({...this.selection}));
-    this.exportButton=this.action('Export selection',()=>this.onExport({...this.selection}));this.exportButton.title='Export the selection to a separate MP4 without changing your edit';
+    this.loopButton=this.action('Loop',()=>{this.loopPreview=!this.loopPreview;this.loopButton.setAttribute('aria-pressed',String(this.loopPreview));});
+    this.loopButton.setAttribute('aria-label',t('Loop selection preview'));this.loopButton.setAttribute('aria-pressed','false');
+    this.loopButton.title=t('Repeat the selected range when previewing it');
+    this.exportButton=this.action('Export selection',()=>this.onExport({...this.selection}));this.exportButton.title=t('Export the selection to a separate MP4 without changing your edit');
     this.selectionText=element('output','timeline-selection-text');this.selectionText.setAttribute('aria-live','polite');selectionRow.append(this.selectionText);
-    const selectionActions=element('div','timeline-selection-actions');selectionActions.append(this.previewButton,this.exportButton,this.clearButton);selectionRow.append(selectionActions);
+    const selectionActions=element('div','timeline-selection-actions');selectionActions.append(this.previewButton,this.loopButton,this.exportButton,this.clearButton);selectionRow.append(selectionActions);
     this.element.append(header,this.toolbar,this.scroller,selectionRow,element('p','kbd-hint','Drag across clips, then adjust the edges. Alt: disable snap. Ctrl + wheel: zoom. Right-click: edit menu.'));
     this.canvas.addEventListener('pointerdown',event=>this.pointerDown(event));
     this.canvas.addEventListener('pointermove',event=>this.pointerMove(event));
@@ -84,7 +88,7 @@ export class Timeline {
     });
     this.observer=new ResizeObserver(()=>this.drawRuler());this.observer.observe(this.scroller);
   }
-  safe(action) { try { action(); } catch(error) { this.onError(String(error)); } }
+  safe(action) { try { action(); } catch(error) { this.onError(errorText(error)); } }
   action(label,callback) {const button=element('button','',label);button.type='button';button.onclick=()=>{if(!this.busy)this.safe(callback);};return button;}
   update(project,{clear=false}={}) {
     this.project=project;this.total=duration(project);this.cancelDrag();
@@ -94,13 +98,13 @@ export class Timeline {
     this.track.replaceChildren();let offset=0;const frames=[];
     project.keep.forEach((range,index)=>{
       const length=range.end_us-range.start_us,at=offset;
-      const clip=this.action(`Clip ${index+1}`,()=>{this.onPause();this.select({start:at,end:at+length});this.onSeek(at);});
+      const clip=this.action(t('Clip {number}',{number:index+1}),()=>{this.onPause();this.select({start:at,end:at+length});this.onSeek(at);});
       clip.className='timeline-clip';clip.dataset.index=index;
       clip.dataset.start=at;clip.dataset.end=at+length;
-      clip.setAttribute('aria-label',`Clip ${index+1}, source ${seconds(range.start_us)} to ${seconds(range.end_us)} seconds`);
+      clip.setAttribute('aria-label',t('Clip {number}, source {start} to {end} seconds',{number:index+1,start:seconds(range.start_us),end:seconds(range.end_us)}));
       clip.title=clip.getAttribute('aria-label');
       const strip=element('span','clip-filmstrip');strip.setAttribute('aria-hidden','true');
-      const caption=element('span','clip-caption',`Clip ${index+1}`);caption.append(element('small','',`${seconds(range.start_us)}…${seconds(range.end_us)} s`));clip.replaceChildren(strip,caption);
+      const caption=element('span','clip-caption',t('Clip {number}',{number:index+1}));caption.append(element('small','',t('{start}…{end} s',{start:seconds(range.start_us),end:seconds(range.end_us)})));clip.replaceChildren(strip,caption);
       frames.push({element:strip,start:range.start_us,end:range.end_us});
       Object.assign(clip.style,{left:`${at/this.total*100}%`,width:`${length/this.total*100}%`});
       clip.addEventListener('click',event=>{if(event.detail>0){event.preventDefault();event.stopImmediatePropagation();}},true);
@@ -109,8 +113,15 @@ export class Timeline {
     this.drawRuler();this.drawSelection();this.position(this.at);
     this.filmstrip.update(frames);
   }
-  position(at) {this.at=Math.max(0,Math.min(this.total||0,at));this.playhead.style.left=`${this.total?this.at/this.total*100:0}%`;this.splitButton.disabled=this.busy || !this.at || this.at>=this.total;}
+  position(at,{follow=false}={}) {
+    this.at=Math.max(0,Math.min(this.total||0,at));this.playhead.style.left=`${this.total?this.at/this.total*100:0}%`;this.splitButton.disabled=this.busy || !this.at || this.at>=this.total;
+    if(follow && this.zoom>1 && this.total && !this.drag && !this.menu){
+      const x=this.at/this.total*this.canvas.clientWidth,width=this.scroller.clientWidth,left=this.scroller.scrollLeft;
+      if(width && (x<left+24 || x>left+width-24))this.scroller.scrollLeft=Math.max(0,x-width*.2);
+    }
+  }
   select(selection) {
+    this.onPause();
     this.selection=selection;this.drawSelection();
   }
   drawSelection() {
@@ -121,11 +132,11 @@ export class Timeline {
       this.handles.forEach((handle,index)=>{
         handle.setAttribute('aria-disabled',String(this.busy));handle.tabIndex=this.busy?-1:0;
         handle.setAttribute('aria-valuemin','0');handle.setAttribute('aria-valuemax',String(this.total/1e6));
-        handle.setAttribute('aria-valuenow',String((index?s.end:s.start)/1e6));handle.setAttribute('aria-valuetext',`${seconds(index?s.end:s.start)} seconds`);
+        handle.setAttribute('aria-valuenow',String((index?s.end:s.start)/1e6));handle.setAttribute('aria-valuetext',t('{time} seconds',{time:seconds(index?s.end:s.start)}));
       });
     }
-    this.selectionText.textContent=s?`${seconds(s.start)}…${seconds(s.end)} s · ${seconds(s.end-s.start)} s selected`:'Drag to select a range';
-    this.previewButton.disabled=this.exportButton.disabled=this.zoomSelectionButton.disabled=this.busy || !s;
+    this.selectionText.textContent=s?t('{start}…{end} s · {duration} s selected',{start:seconds(s.start),end:seconds(s.end),duration:seconds(s.end-s.start)}):t('Drag to select a range');
+    this.previewButton.disabled=this.loopButton.disabled=this.exportButton.disabled=this.zoomSelectionButton.disabled=this.busy || !s;
     this.deleteButton.disabled=this.busy || !s || s.end-s.start>=this.total;
     this.keepButton.disabled=this.busy || !s;
     this.clearButton.disabled=this.busy || !s;
@@ -165,7 +176,7 @@ export class Timeline {
   }
   openMenu(x,y) {
     if(this.busy)return;this.closeMenu();
-    const menu=element('dialog','timeline-menu');menu.setAttribute('aria-label','Edit menu');
+    const menu=element('dialog','timeline-menu');menu.setAttribute('aria-label',t('Edit menu'));
     const entries=[['Split at playhead','S',()=>this.onSplit(this.at),this.splitButton.disabled],['Delete selection','Delete',()=>this.edit(false),this.deleteButton.disabled],['Keep selection','',()=>this.edit(true),this.keepButton.disabled],['Preview selection','',()=>this.onPreview({...this.selection}),!this.selection],['Export selection','',()=>this.onExport({...this.selection}),!this.selection],['Zoom to selection','',()=>this.zoomSelection(),!this.selection],['Set selection start','I',()=>this.mark('start')],['Set selection end','O',()=>this.mark('end')],['Clear selection','Esc',()=>this.select(null),!this.selection]];
     for(const [label,key,action,disabled] of entries){const item=this.action(label,()=>{this.closeMenu();action();});item.disabled=!!disabled;item.append(element('kbd','',key));menu.append(item);}
     menu.addEventListener('cancel',event=>{event.preventDefault();event.stopPropagation();this.closeMenu();});
@@ -185,7 +196,7 @@ export class Timeline {
     const step=[1,2,5,10].map(x=>x*magnitude).find(x=>x>=target)||10*magnitude;
     this.ruler.replaceChildren();
     for(let secondsAt=0;secondsAt<this.total/1e6;secondsAt+=step){
-      const tick=element('span','timeline-tick',`${Number(secondsAt.toFixed(3))} s`);tick.style.left=`${secondsAt*1e6/this.total*100}%`;this.ruler.append(tick);
+      const tick=element('span','timeline-tick',t('{time} s',{time:Number(secondsAt.toFixed(3))}));tick.style.left=`${secondsAt*1e6/this.total*100}%`;this.ruler.append(tick);
     }
   }
   timeAt(clientX) {const bounds=this.canvas.getBoundingClientRect();return snapTime((clientX-bounds.left)/bounds.width*this.total,this.fps,this.total);}
@@ -193,7 +204,7 @@ export class Timeline {
     const bounds=this.canvas.getBoundingClientRect(),raw=(clientX-bounds.left)/bounds.width*this.total;
     const point=this.snapping && !this.drag?.alt?nearestPoint(raw,this.drag?.points||this.cutPoints,8/bounds.width*this.total,min,max):null;
     this.snapGuide.hidden=!point;
-    if(point){this.snapGuide.style.left=`${point.at/this.total*100}%`;this.snapGuide.classList.toggle('at-end',point.at>this.total*0.8);this.snapGuide.firstChild.textContent=point.label;}
+    if(point){this.snapGuide.style.left=`${point.at/this.total*100}%`;this.snapGuide.classList.toggle('at-end',point.at>this.total*0.8);this.snapGuide.firstChild.textContent=t(point.label);}
     return point?.at??Math.max(min,Math.min(max,snapTime(raw,this.fps,this.total)));
   }
   pointerDown(event) {

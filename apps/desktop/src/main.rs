@@ -1,6 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod desktop;
+mod language;
 mod shell;
 
 fn main() -> anyhow::Result<()> {

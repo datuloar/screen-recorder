@@ -1,5 +1,11 @@
 # Using Screen Recorder
 
+## Language
+
+The default language is **Automatic (system)**. Screen Recorder uses the Windows UI language or the first macOS preferred language: Russian for `ru` locales, English for other languages. Existing settings adopt this default without resetting your recording preferences.
+
+To override it, open **Settings → Language**, choose **Русский**, **English** or **Automatic (system)**, then save settings. The interface and tray menu update without restarting. Language affects the main window, screen-area selection, floating controls and editor. Source filenames, paths and device names are preserved. Technical diagnostics from system codecs can remain in their original language.
+
 ## Recording
 
 1. Select a display and choose **Select area**, or press **Ctrl+Shift+F9**.
@@ -25,9 +31,12 @@ Click the ruler to place the playhead. Drag across the clips to select a range; 
 - **Keep selection** retains only the selected range.
 - **Split at playhead** divides a clip without deleting anything.
 - **Preview selection** plays the selected range and stops at its end.
+- **Loop** repeats that range during selection preview. Turn it off to stop at the next end, or press Pause to stop immediately. Changing or clearing the selection pauses playback.
 - **Export selection** saves that range as a separate MP4 without changing the full edit.
 
 Snap aligns selection edges with cuts and the playhead. Hold Alt to disable it temporarily. Ctrl/Command + wheel zooms around the pointer. **Fit** shows the entire edit; **Selection** fits the selected range. Dragging near a zoomed timeline edge scrolls it. Right-click or Shift+F10 opens edit commands.
+
+**Preview speed** offers 0.5×, 1×, 1.5× and 2× playback, including audio. Export keeps the video's original speed. During playback, a zoomed timeline scrolls to keep the playhead visible.
 
 Double-click the preview or choose **Crop video** to draw a crop over the frame. Move or resize it, then choose **Apply**. **Reset crop** restores the full image. Crop, range edits and audio changes support Undo and Redo.
 

@@ -10,19 +10,21 @@ if (!media) throw Error('Usage: node scripts/test-ui.cjs OUTPUT_DIRECTORY TEST_M
 
 async function fixture() {
   const settings = {schema_version:1,fps:30,bitrate_mbps:12,show_cursor:true,countdown_seconds:0,output_dir:'C:/UI-test/recordings',appearance:'Dark',hotkey:'Control+Shift+F9',stop_hotkey:'Control+Shift+F10',pause_hotkey:'Control+Shift+F11',start_in_tray:false,autostart:false,open_editor:true,audio:{system:false,microphone:false,system_device:null,microphone_device:null}};
-  const document = {document_id:'ui-fixture',source:'test-recording.mp4',info:{width:640,height:360,fps:30,duration_us:4000000,audio:[{id:'embedded:0',stream:0,label:'System audio'}]},project:{keep:[{start_us:0,end_us:4000000}],crop:null,muted:false,audio:[{track_id:'embedded:0',gain_db:0,muted:false}]},warnings:[]};
+  const document = {document_id:'ui-fixture',source:'test-recording.mp4',info:{width:640,height:360,fps:30,duration_us:4000000,audio:[{id:'embedded:0',stream:0,label:'Video audio 1'}]},project:{keep:[{start_us:0,end_us:4000000}],crop:null,muted:false,audio:[{track_id:'embedded:0',gain_db:0,muted:false}]},warnings:[]};
   const listeners = {};
-  window.qa = {settings,document,recordings:[],calls:[],status:{phase:'idle',elapsed_ms:0},emit:(event,payload)=>listeners[event]?.({payload})};
+  const query=new URLSearchParams(location.search);
+  settings.language=query.get('preference') || 'System';
+  window.qa = {settings,document,systemLanguage:query.get('system-language') || 'en-US',recordings:[],calls:[],status:{phase:'idle',elapsed_ms:0},emit:(event,payload)=>listeners[event]?.({payload})};
   window.__TAURI__ = {
     event:{listen:async(event,callback)=>{if(qa.failListen===event){qa.failListen=null;throw Error('Test: event connection failed');}listeners[event]=callback;return ()=>{};}},
     core:{convertFileSrc:()=>'/fixture.mp4',invoke:async(command,args)=>{
       qa.calls.push({command,args});
       if(qa.fail===command){qa.fail=null;throw Error('Test: action failed');}
       switch(command){
-        case 'bootstrap': return {version:'0.1.0',settings,displays:[{id:1,name:'Display 1',width:1920,height:1080},{id:2,name:'Display 2',width:1080,height:1920}],system_devices:[{id:'',name:'Default device'},{id:'speakers',name:'Speakers'}],microphone_devices:[{id:'',name:'Default device'},{id:'mic',name:'Microphone USB'}],recordings:[]};
+        case 'bootstrap': return {version:'0.1.0',system_language:qa.systemLanguage,settings,displays:[{id:1,name:'Display 1',width:1920,height:1080},{id:2,name:'Display 2',width:1080,height:1920}],system_devices:[{id:'',name:'Default device'},{id:'speakers',name:'Speakers'}],microphone_devices:[{id:'',name:'Default device'},{id:'mic',name:'Microphone USB'}],recordings:[]};
         case 'capture_status': return qa.status;
         case 'capture_controls_state': {
-          const state={status:structuredClone(qa.status),appearance:settings.appearance,stop_hotkey:settings.stop_hotkey,pause_hotkey:settings.pause_hotkey};
+          const state={status:structuredClone(qa.status),appearance:settings.appearance,language:settings.language,system_language:qa.systemLanguage,stop_hotkey:settings.stop_hotkey,pause_hotkey:settings.pause_hotkey};
           if(qa.holdControls)await new Promise(resolve=>qa.releaseControls=resolve);
           return state;
         }
@@ -48,7 +50,7 @@ async function fixture() {
 (async()=>{
   await fs.mkdir(output,{recursive:true});
   const browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL || undefined,headless:true});
-  const page=await browser.newPage({viewport:{width:1080,height:920},reducedMotion:'reduce'});
+  const page=await browser.newPage({viewport:{width:1080,height:920},reducedMotion:'reduce',locale:'en-US'});
   page.setDefaultTimeout(8000);
   const errors=[],checks=[];
   page.on('pageerror',e=>errors.push(e.message));
@@ -59,7 +61,7 @@ async function fixture() {
       if(match){const start=Number(match[1]),end=Math.min(data.length-1,match[2]?Number(match[2]):data.length-1);return route.fulfill({status:206,contentType:'video/mp4',headers:{'Accept-Ranges':'bytes','Content-Range':`bytes ${start}-${end}/${data.length}`},body:data.subarray(start,end+1)});}
       return route.fulfill({contentType:'video/mp4',headers:{'Accept-Ranges':'bytes'},body:data});
     }
-    const allowed={'/':'index.html','/app.js':'app.js','/styles.css':'styles.css','/model.js':'model.js','/timeline.js':'timeline.js','/shortcuts.js':'shortcuts.js','/filmstrip.js':'filmstrip.js','/crop.js':'crop.js','/capture.html':'capture.html','/capture.js':'capture.js'};
+    const allowed={'/':'index.html','/app.js':'app.js','/styles.css':'styles.css','/model.js':'model.js','/i18n.js':'i18n.js','/timeline.js':'timeline.js','/shortcuts.js':'shortcuts.js','/filmstrip.js':'filmstrip.js','/crop.js':'crop.js','/capture.html':'capture.html','/capture.js':'capture.js'};
     if(!allowed[name])return route.fulfill({status:404,body:''});
     await route.fulfill({contentType:name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':'text/html',body:await fs.readFile(path.join(root,'ui',allowed[name]))});
   });
@@ -167,7 +169,7 @@ async function fixture() {
     await click('Open video');
     await page.waitForFunction(()=>document.querySelector('video')?.readyState>=2);
     const selectRange=async(start,end,total=4)=>{
-      await click('Fit');await page.locator('.timeline-scroll').scrollIntoViewIfNeeded();
+      await page.locator('.timeline-zoom button').first().click();await page.locator('.timeline-scroll').scrollIntoViewIfNeeded();
       const bounds=await page.locator('.timeline-track').boundingBox();
       await page.mouse.move(bounds.x+bounds.width*start/total,bounds.y+bounds.height/2);await page.mouse.down();
       await page.mouse.move(bounds.x+bounds.width*end/total,bounds.y+bounds.height/2,{steps:10});await page.mouse.up();
@@ -322,7 +324,7 @@ async function fixture() {
       await click('Open video');await page.waitForFunction(()=>document.querySelector('video')?.readyState>=2);
     });
     await check('audio mix, save, export progress and cancellation',async()=>{
-      await page.locator('.edit-tool summary').filter({hasText:/^Audio$/}).click();await page.getByLabel('Mute all audio',{exact:true}).check();await page.getByLabel('Mute all audio',{exact:true}).uncheck();await page.getByLabel('System audio',{exact:true}).uncheck();await page.getByLabel('Volume: System audio').fill('-6');
+      await page.locator('.edit-tool summary').filter({hasText:/^Audio$/}).click();await page.getByLabel('Mute all audio',{exact:true}).check();await page.getByLabel('Mute all audio',{exact:true}).uncheck();await page.getByLabel('Video audio 1',{exact:true}).uncheck();await page.getByLabel('Volume: Video audio 1').fill('-6');
       await click('Save project');assert.equal((await last('save_project')).project.audio[0].gain_db,-6);
       await page.locator('.edit-tool summary').filter({hasText:/^Audio$/}).click();
       await click('Export MP4');await page.getByRole('button',{name:'Cancel export'}).waitFor();assert.equal(await page.getByRole('button',{name:'Save project',exact:true}).isDisabled(),true);
@@ -359,6 +361,54 @@ async function fixture() {
       await page.waitForTimeout(100);assert.equal(await page.evaluate(()=>qa.playCalls),0);
       await click('Open video');await page.waitForFunction(()=>document.querySelector('video')?.readyState>=2);
       await click('Play');await page.getByRole('button',{name:'Pause',exact:true}).waitFor();await click('Pause');
+    });
+    await check('preview speed changes playback without changing the saved or exported project',async()=>{
+      await click('Open video');await page.waitForFunction(()=>document.querySelector('video')?.readyState>=2);
+      await page.getByLabel('Preview speed',{exact:true}).selectOption('0.5');
+      await click('Play');await page.getByRole('button',{name:'Pause',exact:true}).waitFor();
+      assert.equal(await page.locator('video').evaluate(v=>v.playbackRate),.5);await click('Pause');
+      await page.getByLabel('Preview speed',{exact:true}).selectOption('2');
+      await click('Save project');const saved=(await last('save_project')).project;
+      assert.deepEqual(saved,await page.evaluate(()=>qa.document.project));
+      await click('Export MP4');await page.getByRole('button',{name:'Cancel export'}).waitFor();
+      assert.equal(await page.getByLabel('Preview speed',{exact:true}).isDisabled(),true);
+      assert.deepEqual((await last('export_video')).project,saved);await click('Cancel export');
+      await page.waitForFunction(()=>!document.querySelector('.preview-speed select').disabled);
+      assert.equal(await page.getByLabel('Preview speed',{exact:true}).inputValue(),'2');
+    });
+    const watchLoops=async threshold=>page.evaluate(threshold=>{
+      const video=document.querySelector('video');qa.loopReturns=0;let previous=null;
+      const sample=()=>{if(!video.paused){if(previous>=threshold && video.currentTime<threshold)qa.loopReturns++;previous=video.currentTime;}else previous=null;qa.loopFrame=requestAnimationFrame(sample);};sample();
+    },threshold);
+    await check('selection loops across removed gaps and stops when cleared or loop is turned off',async()=>{
+      await selectRange(1,2);await click('Delete selection');await selectRange(.5,1.5,3);
+      await click('Loop selection preview');assert.equal(await page.getByRole('button',{name:'Loop selection preview'}).getAttribute('aria-pressed'),'true');
+      await watchLoops(2);await click('Preview selection');
+      await page.waitForFunction(()=>qa.loopReturns>=2);await click('Loop selection preview');
+      await page.waitForFunction(()=>document.querySelector('video').paused);
+      assert.ok(await page.locator('video').evaluate(v=>v.currentTime>=2.4 && v.currentTime<2.5));
+      await click('Loop selection preview');await click('Preview selection');await page.getByRole('button',{name:'Pause',exact:true}).waitFor();
+      await click('Clear selection');assert.equal(await page.locator('video').evaluate(v=>v.paused),true);
+      assert.equal(await page.getByRole('button',{name:'Loop selection preview'}).isDisabled(),true);
+      await page.evaluate(()=>cancelAnimationFrame(qa.loopFrame));
+    });
+    await check('loop preview restarts at the physical file end and pause stays final',async()=>{
+      await click('Open video');await page.waitForFunction(()=>document.querySelector('video')?.readyState>=2);
+      await page.getByLabel('Preview speed',{exact:true}).selectOption('2');await selectRange(3,4);
+      await click('Loop selection preview');await watchLoops(3.8);await click('Preview selection');
+      await page.waitForFunction(()=>qa.loopReturns>=2);await click('Pause');
+      const stopped=await page.locator('video').evaluate(v=>v.currentTime);await page.waitForTimeout(150);
+      assert.equal(await page.locator('video').evaluate(v=>v.paused),true);
+      assert.ok(Math.abs(await page.locator('video').evaluate(v=>v.currentTime)-stopped)<.04);
+      await page.evaluate(()=>cancelAnimationFrame(qa.loopFrame));await click('Clear selection');
+    });
+    await check('zoomed timeline follows playback and leaves paused scrolling alone',async()=>{
+      await page.locator('#content').focus();await page.keyboard.press('Home');await page.getByLabel('Timeline zoom').fill('4');
+      await click('Play');await page.waitForFunction(()=>document.querySelector('.timeline-scroll').scrollLeft>100);
+      const visible=await page.evaluate(()=>{const head=document.querySelector('.timeline-playhead').getBoundingClientRect(),view=document.querySelector('.timeline-scroll').getBoundingClientRect();return head.x>=view.x && head.x<=view.right;});assert.equal(visible,true);
+      await click('Pause');await page.evaluate(()=>{document.querySelector('.timeline-scroll').scrollLeft=0;document.querySelector('video').currentTime=3;});
+      await page.waitForTimeout(100);assert.equal(await page.locator('.timeline-scroll').evaluate(e=>e.scrollLeft),0);
+      await click('Fit');await page.getByLabel('Preview speed',{exact:true}).selectOption('1');
     });
     await check('light/dark layouts at 1080, 900, 620 and 360 CSS px',async()=>{
       await page.evaluate(()=>{document.querySelector('#notice').hidden=true;});
@@ -493,6 +543,60 @@ async function fixture() {
       await click('Retry');await page.getByRole('heading',{name:'Record your screen',exact:true}).waitFor();
       assert.equal(await page.locator('#app-version').innerText(),'v0.1.0');
       assert.match(await page.locator('#footer-hint').innerText(),/Ctrl \+ Shift \+ F9/);
+    });
+    await check('native system language selects Russian and live overrides persist without resetting settings',async()=>{
+      await page.goto('http://screen-recorder.test/?system-language=ru-RU');
+      await page.getByRole('heading',{name:'Запись экрана',exact:true}).waitFor();
+      assert.equal(await page.locator('html').getAttribute('lang'),'ru');
+      assert.match(await page.getByLabel('Экран',{exact:true}).innerText(),/Экран 1/);
+      await click('Настроить');assert.equal(await page.getByLabel('Язык',{exact:true}).inputValue(),'System');
+      await page.getByLabel('Частота кадров',{exact:true}).selectOption('60');await page.getByLabel('Язык',{exact:true}).selectOption('English');
+      await click('Сохранить настройки');await page.getByText('Settings saved',{exact:true}).waitFor();
+      assert.equal(await page.locator('html').getAttribute('lang'),'en');assert.equal(await page.getByLabel('Frame rate',{exact:true}).inputValue(),'60');
+      assert.equal(await page.evaluate(()=>document.activeElement.textContent),'Save settings');
+      assert.equal((await last('save_settings')).settings.language,'English');
+      await page.getByLabel('Language',{exact:true}).selectOption('Russian');await page.evaluate(()=>qa.fail='save_settings');await click('Save settings');
+      await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('Test:'));
+      assert.equal(await page.locator('html').getAttribute('lang'),'en');assert.equal(await page.evaluate(()=>qa.settings.language),'English');
+      await click('Save settings');await page.getByText('Настройки сохранены',{exact:true}).waitFor();
+      assert.equal(await page.getByLabel('Частота кадров',{exact:true}).inputValue(),'60');
+      await page.getByLabel('Язык',{exact:true}).selectOption('System');await click('Сохранить настройки');
+      assert.equal(await page.locator('html').getAttribute('lang'),'ru');
+    });
+    await check('Russian editor localizes selection, crop, audio and export without translating filenames',async()=>{
+      await page.evaluate(()=>qa.document.source='Settings.mp4');await click('Открыть видео');
+      await page.waitForFunction(()=>document.querySelector('video')?.readyState>=2);
+      await page.getByRole('heading',{name:'Settings.mp4',exact:true}).waitFor();
+      await selectRange(.5,1.5);assert.match(await page.locator('.timeline-selection-text').innerText(),/выделено 1 с/);
+      await click('Удалить выделенное');await click('Сохранить проект');assert.deepEqual((await last('save_project')).project.keep,[{start_us:0,end_us:500000},{start_us:1500000,end_us:4000000}]);await click('Отменить');
+      await page.locator('.edit-tool summary').filter({hasText:/^Звук$/}).click();
+      await page.getByLabel('Громкость: Звук видео 1',{exact:true}).fill('-6');
+      await page.locator('video').dblclick();await page.getByRole('heading',{name:'Кадрировать видео',exact:true}).waitFor();
+      await page.getByRole('button',{name:'Весь кадр',exact:true}).click();await page.getByRole('button',{name:'Применить',exact:true}).click();
+      await selectRange(.5,1.5);await click('Экспорт выделения');await page.getByText('Экспорт MP4…',{exact:true}).waitFor();
+      assert.equal((await last('export_video')).project.audio[0].gain_db,-6);
+      await page.evaluate(()=>qa.finishExport('C:/Videos/Settings.mp4'));await page.getByText('Выделенный отрезок экспортирован',{exact:true}).waitFor();
+      assert.equal(await page.locator('.export-path').innerText(),'C:/Videos/Settings.mp4');
+      for(const theme of ['dark','light'])for(const width of [1080,900,620,360]){await page.setViewportSize({width,height:748});await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);await noOverflow();}
+      await shot('editor-russian');await page.setViewportSize({width:1080,height:920});
+    });
+    await check('explicit languages override the system and unsupported locales fall back to English',async()=>{
+      for(const [query,heading,language] of [['system-language=ru-RU&preference=English','Record your screen','en'],['system-language=en-US&preference=Russian','Запись экрана','ru'],['system-language=pl-PL','Record your screen','en']]){
+        await page.goto('http://screen-recorder.test/?'+query);await page.getByRole('heading',{name:heading,exact:true}).waitFor();assert.equal(await page.locator('html').getAttribute('lang'),language);
+      }
+    });
+    await check('Russian compact controls and area selection use the same language preference',async()=>{
+      await page.goto('http://screen-recorder.test/capture.html?system-language=ru-RU');
+      await page.getByText('Запись завершена',{exact:true}).waitFor();
+      await page.evaluate(()=>{qa.status={phase:'recording',elapsed_ms:5000};qa.emit('capture-status',qa.status);});
+      await click('Пауза');await page.getByRole('button',{name:'Продолжить',exact:true}).waitFor();
+      await page.evaluate(()=>{qa.settings.language='English';qa.emit('capture-controls-refresh');});
+      await page.getByRole('button',{name:'Resume',exact:true}).waitFor();
+      assert.equal(await page.locator('html').getAttribute('lang'),'en');
+      await page.goto('http://screen-recorder.test/?overlay=1&display=1&width=1920&height=1080&x=100&y=100&w=640&h=360&language=ru');
+      await page.getByRole('button',{name:'Записать область',exact:true}).waitFor();
+      await page.getByText('Точные координаты',{exact:true}).click();assert.equal(await page.getByLabel('Ширина',{exact:true}).inputValue(),'640');
+      await click('Записать область');assert.equal((await last('apply_region')).startRecording,true);await noOverflow();assert.deepEqual(errors,[]);
     });
     await fs.writeFile(path.join(output,'results.json'),JSON.stringify({checks,errors,scope:'Headless Chromium frontend with mocked Tauri commands; media decoded from supplied local MP4. Does not test native dialogs or capture.'},null,2));
   }catch(error){await shot('failure');console.error(JSON.stringify(await page.evaluate(()=>({calls:qa.calls.slice(-6),notice:document.querySelector('#notice')?.textContent})),null,2));throw error;}

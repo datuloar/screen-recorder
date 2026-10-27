@@ -12,6 +12,9 @@ Design read: a desktop creative utility for people making short recordings, with
 | Tabular numbers | Keep clocks and time positions stable as values change |
 | Preview, timeline, optional tools | Keep direct editing close to the video; secondary tools follow on narrow windows |
 | Export in the editor heading | Keep the final action visible without opening or scrolling the inspector |
+| Optional loop and preview speed | Check a cut repeatedly or slow it down without changing the exported video |
+| Follow playback on a zoomed timeline | Keep the current frame visible while reviewing an edit |
+| System language with a saved override | Use familiar labels on first launch and keep an explicit choice across sessions |
 | Minimum 220 px preview height on wide windows | Prevent ordinary laptop heights from reducing video to a thumbnail |
 | Collapsible exact coordinates and tools | Preserve precision without making numeric input the normal workflow |
 | Rectangular capture outline | Repeat the actual shape being selected as the interface's main visual motif |

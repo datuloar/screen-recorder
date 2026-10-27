@@ -1,3 +1,4 @@
+import { t, errorText, configureLanguage, translateShell } from './i18n.js';
 import { clock } from './model.js';
 import { shortcutLabel } from './shortcuts.js';
 
@@ -12,19 +13,20 @@ const error = document.querySelector('#capture-error');
 const retry = document.querySelector('#capture-retry');
 let status = { phase:'idle', elapsed_ms:0 }, pending = false, stopping = false, statusVersion = 0;
 let listeningStatus = false, listeningRefresh = false;
+configureLanguage();translateShell();
 
 function report(value) {
-  const text = value ? String(value) : '';
+  const text = value ? errorText(value) : '';
   if (error.textContent !== text) error.textContent = text;
   error.hidden = !value;
 }
 function render(value) {
   status = value;
   if (status.phase === 'idle') stopping = false;
-  const label = {idle:'Recording finished',preparing:'Preparing recording…',recording:'Recording',paused:'Paused',saving:'Saving recording…'}[status.phase] || 'Waiting for recording';
+  const label = t({idle:'Recording finished',preparing:'Preparing recording…',recording:'Recording',paused:'Paused',saving:'Saving recording…'}[status.phase] || 'Waiting for recording');
   if (phase.textContent !== label) phase.textContent = label;
   time.textContent = clock(status.elapsed_ms);
-  pause.textContent = status.phase === 'paused' ? 'Resume' : 'Pause';
+  pause.textContent = t(status.phase === 'paused' ? 'Resume' : 'Pause');
   pause.disabled = pending || stopping || !['recording','paused'].includes(status.phase);
   stop.disabled = pending || stopping || !['preparing','recording','paused'].includes(status.phase);
   if (status.error) report(status.error);
@@ -32,10 +34,11 @@ function render(value) {
 async function refresh() {
   const version = statusVersion;
   const data = await invoke('capture_controls_state');
+  configureLanguage(data.language,data.system_language);translateShell();document.title=t('Recording controls');
   document.documentElement.dataset.theme = data.appearance.toLowerCase();
-  pause.title = `Pause / resume: ${shortcutLabel(data.pause_hotkey)}`;
-  stop.title = `Stop and save: ${shortcutLabel(data.stop_hotkey)}`;
-  if (version === statusVersion) render(data.status);
+  pause.title = t('Pause / resume: {shortcut}',{shortcut:shortcutLabel(data.pause_hotkey)});
+  stop.title = t('Stop and save: {shortcut}',{shortcut:shortcutLabel(data.stop_hotkey)});
+  render(version === statusVersion ? data.status : status);
   if (document.activeElement === retry) phase.focus();
   retry.hidden = true;
 }

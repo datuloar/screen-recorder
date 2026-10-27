@@ -21,6 +21,7 @@ pub struct Shell {
     _tray: TrayIcon,
     manager: GlobalHotKeyManager,
     keys: [HotKey; 3],
+    labels: [(MenuItem, &'static str, &'static str); 8],
 }
 
 static EVENTS: std::sync::OnceLock<tokio::sync::broadcast::Sender<ShellEvent>> =
@@ -74,6 +75,19 @@ impl Shell {
             (pause.id().clone(), ShellEvent::Pause),
             (quit.id().clone(), ShellEvent::Quit),
         ];
+        let labels = [
+            (select, "New recording", "Новая запись"),
+            (show, "Open Screen Recorder", "Открыть Screen Recorder"),
+            (recent, "Recent recordings", "Недавние записи"),
+            (last, "Open last recording", "Открыть последнюю запись"),
+            (settings_item, "Settings", "Настройки"),
+            (stop, "Stop recording", "Остановить запись"),
+            (pause, "Pause / resume", "Пауза / продолжить"),
+            (quit, "Quit", "Выход"),
+        ];
+        for (item, en, ru) in &labels {
+            item.set_text(crate::language::text(settings.language, en, ru));
+        }
         MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
             if let Some((_, action)) = ids.iter().find(|(id, _)| *id == event.id) {
                 let _ = events().send(*action);
@@ -103,6 +117,7 @@ impl Shell {
             _tray: tray,
             manager,
             keys,
+            labels,
         })
     }
 
@@ -122,6 +137,7 @@ impl Shell {
     pub fn rebind(&mut self, settings: &recorder_core::AppSettings) -> anyhow::Result<()> {
         let keys = Self::parse_keys(settings)?;
         if keys == self.keys {
+            self.set_language(settings.language);
             return Ok(());
         }
         self.manager.unregister_all(&self.keys)?;
@@ -134,7 +150,14 @@ impl Shell {
         }
         self.keys = keys;
         Self::listen(keys);
+        self.set_language(settings.language);
         Ok(())
+    }
+
+    fn set_language(&self, language: recorder_core::Language) {
+        for (item, en, ru) in &self.labels {
+            item.set_text(crate::language::text(language, en, ru));
+        }
     }
 
     fn listen([record, stop, pause]: [HotKey; 3]) {

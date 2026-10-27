@@ -10,6 +10,32 @@ pub enum Appearance {
     Dark,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Language {
+    #[default]
+    System,
+    English,
+    Russian,
+}
+
+impl Language {
+    pub fn resolve(self, system: &str) -> &'static str {
+        match self {
+            Self::Russian => "ru",
+            Self::English => "en",
+            Self::System
+                if system
+                    .split(['-', '_'])
+                    .next()
+                    .is_some_and(|s| s.eq_ignore_ascii_case("ru")) =>
+            {
+                "ru"
+            }
+            Self::System => "en",
+        }
+    }
+}
+
 impl std::fmt::Display for Appearance {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
@@ -30,6 +56,7 @@ pub struct AppSettings {
     pub countdown_seconds: u32,
     pub output_dir: PathBuf,
     pub appearance: Appearance,
+    pub language: Language,
     pub hotkey: String,
     pub stop_hotkey: String,
     pub pause_hotkey: String,
@@ -49,6 +76,7 @@ impl Default for AppSettings {
             countdown_seconds: 3,
             output_dir: PathBuf::new(),
             appearance: Appearance::System,
+            language: Language::System,
             hotkey: "Control+Shift+F9".into(),
             stop_hotkey: "Control+Shift+F10".into(),
             pause_hotkey: "Control+Shift+F11".into(),
@@ -57,6 +85,45 @@ impl Default for AppSettings {
             open_editor: true,
             audio: crate::AudioSettings::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod language_tests {
+    use super::*;
+
+    #[test]
+    fn older_settings_default_to_system_language_without_resetting_preferences() {
+        let settings: AppSettings =
+            serde_json::from_str(r#"{"fps":60,"appearance":"Dark","hotkey":"Control+F8"}"#)
+                .unwrap();
+        assert_eq!(settings.language, Language::System);
+        assert_eq!(settings.fps, 60);
+        assert_eq!(settings.appearance, Appearance::Dark);
+        assert_eq!(settings.hotkey, "Control+F8");
+    }
+
+    #[test]
+    fn language_uses_system_ui_locale_with_explicit_overrides_and_english_fallback() {
+        for locale in ["ru", "ru-RU", "RU_ru", "ru-BY"] {
+            assert_eq!(Language::System.resolve(locale), "ru");
+            assert_eq!(Language::English.resolve(locale), "en");
+        }
+        for locale in ["en-US", "pl-PL", "uk-UA", "", "russian"] {
+            assert_eq!(Language::System.resolve(locale), "en");
+            assert_eq!(Language::Russian.resolve(locale), "ru");
+        }
+        let settings = AppSettings {
+            language: Language::Russian,
+            ..Default::default()
+        };
+        let saved = serde_json::to_string(&settings).unwrap();
+        assert_eq!(
+            serde_json::from_str::<AppSettings>(&saved)
+                .unwrap()
+                .language,
+            Language::Russian
+        );
     }
 }
 

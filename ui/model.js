@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 export const clone = value => structuredClone(value);
 export const duration = project => project.keep.reduce((sum, r) => sum + r.end_us - r.start_us, 0);
 export function sourceTime(project, edited) {
@@ -18,7 +19,7 @@ export function editedTime(project, source) {
   return result;
 }
 export function cutRanges(keep, start, end, trim = false) {
-  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= end) throw Error('The range must end after it starts');
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= end) throw Error(t('The range must end after it starts'));
   const result = [];
   for (const r of keep) {
     if (trim) {
@@ -30,12 +31,12 @@ export function cutRanges(keep, start, end, trim = false) {
       if (end < r.end_us) result.push({ start_us: end, end_us: r.end_us });
     }
   }
-  if (!result.length) throw Error('Keep at least one part of the video');
+  if (!result.length) throw Error(t('Keep at least one part of the video'));
   return result;
 }
 export function editTimeline(keep, start, end, retain = false) {
   const total = duration({keep});
-  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end > total || start >= end) throw Error('Select a range within the edited video');
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end > total || start >= end) throw Error(t('Select a range within the edited video'));
   let offset = 0;
   const result = [];
   for (const range of keep) {
@@ -50,11 +51,11 @@ export function editTimeline(keep, start, end, retain = false) {
     } else if (!retain) result.push({...range});
     offset += length;
   }
-  if (!result.length) throw Error('Keep at least one part of the video');
+  if (!result.length) throw Error(t('Keep at least one part of the video'));
   return result;
 }
 export function splitTimeline(keep, at) {
-  if (!Number.isSafeInteger(at)) throw Error('Invalid split position');
+  if (!Number.isSafeInteger(at)) throw Error(t('Invalid split position'));
   let offset = 0, split = false;
   const result = keep.flatMap(range => {
     const length = range.end_us - range.start_us, local = at - offset;
@@ -63,7 +64,7 @@ export function splitTimeline(keep, at) {
     split = true;
     return [{start_us:range.start_us,end_us:range.start_us + local},{start_us:range.start_us + local,end_us:range.end_us}];
   });
-  if (!split) throw Error('Move the playhead inside a clip to split it');
+  if (!split) throw Error(t('Move the playhead inside a clip to split it'));
   return result;
 }
 export function snapTime(at, fps, total) {
@@ -81,10 +82,10 @@ export function nearestPoint(at, points, tolerance, min, max) {
 }
 export function parseTime(value) {
   const text = String(value).trim().replace(',', '.');
-  if (!/^\d+(\.\d{1,6})?$/.test(text)) throw Error('Enter seconds, for example 12.5');
+  if (!/^\d+(\.\d{1,6})?$/.test(text)) throw Error(t('Enter seconds, for example 12.5'));
   const [whole, fraction = ''] = text.split('.');
   const result = Number(whole) * 1_000_000 + Number(fraction.padEnd(6, '0'));
-  if (!Number.isSafeInteger(result)) throw Error('Time value is too large');
+  if (!Number.isSafeInteger(result)) throw Error(t('Time value is too large'));
   return result;
 }
 export function seconds(us) { return String(Number((us / 1_000_000).toFixed(3))); }

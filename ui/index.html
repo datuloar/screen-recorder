@@ -11,16 +11,16 @@
   <div id="app">
     <header class="app-header">
       <span class="app-name">Screen Recorder<span id="app-version" class="app-version"></span></span>
-      <nav aria-label="Main navigation">
-        <button id="home-nav" aria-current="page">Record</button>
-        <button id="recordings-nav">Recordings</button>
-        <button id="open-nav">Open video</button>
-        <button id="settings-nav">Settings</button>
+      <nav aria-label="Main navigation" data-i18n-label="Main navigation">
+        <button id="home-nav" aria-current="page" data-i18n="Record">Record</button>
+        <button id="recordings-nav" data-i18n="Recordings">Recordings</button>
+        <button id="open-nav" data-i18n="Open video">Open video</button>
+        <button id="settings-nav" data-i18n="Settings">Settings</button>
       </nav>
     </header>
     <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
-    <main id="content" tabindex="-1"><p>Loading settings…</p></main>
-    <footer><span id="footer-hint"></span><button id="quit" class="quiet">Quit</button></footer>
+    <main id="content" tabindex="-1"><p data-i18n="Loading settings…">Loading settings…</p></main>
+    <footer><span id="footer-hint"></span><button id="quit" class="quiet" data-i18n="Quit">Quit</button></footer>
   </div>
 </body>
 </html>

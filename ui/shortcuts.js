@@ -1,3 +1,4 @@
+import { t, errorText } from './i18n.js';
 const aliases = {ctrl:'Control',control:'Control',shift:'Shift',alt:'Alt',option:'Alt',meta:'Super',super:'Super',cmd:'Super',command:'Super'};
 const order = ['Control','Alt','Shift','Super'];
 export const shortcutActions = [['hotkey','Select area','Control+Shift+F9'],['stop_hotkey','Stop recording','Control+Shift+F10'],['pause_hotkey','Pause / resume','Control+Shift+F11']];
@@ -25,9 +26,9 @@ export function shortcutLabel(value,mac=/Mac/.test(globalThis.navigator?.platfor
 export function shortcutFromEvent(event) {
   const code=keyboardCode(event);
   if(event.repeat || event.isComposing || /^(Control|Shift|Alt|Meta)/.test(code))return null;
-  if(event.getModifierState?.('AltGraph'))throw Error('Use Ctrl or Alt instead of AltGr');
-  if(!/^(Key[A-Z]|Digit[0-9]|F([1-9]|1[0-9]|2[0-4])|PrintScreen|Pause|Space|Arrow(Left|Right|Up|Down)|Home|End|PageUp|PageDown|Insert|Delete|Backspace|Numpad[0-9])$/.test(code))throw Error('Choose a letter, number, function key or Print Screen');
-  if(!event.ctrlKey && !event.altKey && !event.metaKey && !/^F\d+$|^PrintScreen$|^Pause$/.test(code))throw Error('Add Ctrl, Alt or Command to avoid interfering with typing');
+  if(event.getModifierState?.('AltGraph'))throw Error(t('Use Ctrl or Alt instead of AltGr'));
+  if(!/^(Key[A-Z]|Digit[0-9]|F([1-9]|1[0-9]|2[0-4])|PrintScreen|Pause|Space|Arrow(Left|Right|Up|Down)|Home|End|PageUp|PageDown|Insert|Delete|Backspace|Numpad[0-9])$/.test(code))throw Error(t('Choose a letter, number, function key or Print Screen'));
+  if(!event.ctrlKey && !event.altKey && !event.metaKey && !/^F\d+$|^PrintScreen$|^Pause$/.test(code))throw Error(t('Add Ctrl, Alt or Command to avoid interfering with typing'));
   return [...(event.ctrlKey?['Control']:[]),...(event.altKey?['Alt']:[]),...(event.shiftKey?['Shift']:[]),...(event.metaKey?['Super']:[]),code].join('+');
 }
 export function shortcutConflict(draft,key,value) {
@@ -36,11 +37,11 @@ export function shortcutConflict(draft,key,value) {
 
 export async function recordShortcut({label,value,onAccept,invoke,subscribe}) {
   const dialog=document.createElement('dialog');dialog.className='shortcut-dialog';
-  const heading=document.createElement('h2');heading.textContent=label;heading.id='shortcut-title';dialog.setAttribute('aria-labelledby',heading.id);
-  const hint=document.createElement('p');hint.textContent='Press your new shortcut. Esc cancels.';
-  const output=document.createElement('output');output.className='shortcut-preview';output.textContent='Preparing shortcut input…';output.setAttribute('aria-live','polite');
+  const heading=document.createElement('h2');heading.textContent=t(label);heading.id='shortcut-title';dialog.setAttribute('aria-labelledby',heading.id);
+  const hint=document.createElement('p');hint.textContent=t('Press your new shortcut. Esc cancels.');
+  const output=document.createElement('output');output.className='shortcut-preview';output.textContent=t('Preparing shortcut input…');output.setAttribute('aria-live','polite');
   const error=document.createElement('p');error.className='shortcut-error';error.setAttribute('role','status');
-  const cancel=document.createElement('button');cancel.textContent='Cancel';cancel.type='button';
+  const cancel=document.createElement('button');cancel.textContent=t('Cancel');cancel.type='button';
   dialog.append(heading,hint,output,error,cancel);document.body.append(dialog);dialog.showModal();cancel.focus();
   let active=true,ready=false,unlisten,timer;
   const close=()=>{
@@ -49,7 +50,7 @@ export async function recordShortcut({label,value,onAccept,invoke,subscribe}) {
   };
   const accept=next=>{
     if(!active || !ready)return;
-    try{onAccept(next);close();}catch(e){error.textContent=String(e.message||e);}
+    try{onAccept(next);close();}catch(e){error.textContent=errorText(e);}
   };
   cancel.onclick=close;dialog.oncancel=e=>{e.preventDefault();close();};window.addEventListener('blur',close);
   dialog.addEventListener('keydown',event=>{
@@ -62,7 +63,7 @@ export async function recordShortcut({label,value,onAccept,invoke,subscribe}) {
       const next=shortcutFromEvent(event);
       output.textContent=next?shortcutLabel(next):[event.ctrlKey?'Ctrl':'',event.altKey?'Alt':'',event.shiftKey?'Shift':'',event.metaKey?'Cmd / Win':'','…'].filter(Boolean).join(' + ');
       if(next)accept(next);
-    }catch(e){error.textContent=e.message;}
+    }catch(e){error.textContent=errorText(e);}
   });
   try{
     unlisten=await subscribe('shortcut-captured',event=>accept(event.payload));

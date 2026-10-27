@@ -1,3 +1,4 @@
+import { t, errorText, configureLanguage, locale, translateShell } from './i18n.js';
 import { clone, duration, sourceTime, editedTime, editTimeline, splitTimeline, snapTime, seconds, clock, fitRegion, dragRegion } from './model.js';
 import { Timeline } from './timeline.js';
 import { CropEditor } from './crop.js';
@@ -11,6 +12,9 @@ const notice = $('#notice');
 let settings, displays = [], systemDevices = [], micDevices = [], region, selectedDisplay, page = 'home', editor;
 let phase = 'idle', countdown, countTimer, lastStatus, starting = false, cancelCountdown;
 let recordings = [], jobBusy=false;
+let systemLanguage=navigator.language;
+configureLanguage(new URLSearchParams(location.search).get('language') || 'System');
+translateShell();
 
 function node(tag, attrs = {}, children = []) {
   const element = document.createElement(tag);
@@ -18,25 +22,29 @@ function node(tag, attrs = {}, children = []) {
     if (key.startsWith('on')) element.addEventListener(key.slice(2), value);
     else if (key === 'class') element.className = value;
     else if (key === 'text') element.textContent = value;
+    else if (key === 'aria-label' || key === 'title') element.setAttribute(key,t(value));
     else if (key in element) element[key] = value;
     else element.setAttribute(key, value);
   }
   for (const child of [children].flat(Infinity)) if (child != null) element.append(child instanceof Node ? child : document.createTextNode(String(child)));
   return element;
 }
-function button(label, action, primary = false) { return node('button', { text: label, class: primary ? 'primary' : '', onclick: () => safely(action) }); }
-function field(label, input) { input.setAttribute('aria-label',label);return node('label', { class: 'field' }, [node('span', { text: label }), input]); }
-function toolSection(title, children, open = false) { return node('details',{class:'edit-tool',open},[node('summary',{text:title}),node('div',{class:'tool-body'},children)]); }
-function check(label, value, change) { return node('label', {class:'check-control'}, [node('input', { type: 'checkbox', checked: value, onchange: e => change(e.target.checked) }), node('span',{text:label})]); }
+function button(label, action, primary = false) { return node('button', { text: t(label), class: primary ? 'primary' : '', onclick: () => safely(action) }); }
+function field(label, input) { label=t(label);input.setAttribute('aria-label',label);return node('label', { class: 'field' }, [node('span', { text: label }), input]); }
+function toolSection(title, children, open = false) { return node('details',{class:'edit-tool',open},[node('summary',{text:t(title)}),node('div',{class:'tool-body'},children)]); }
+function check(label, value, change) { return node('label', {class:'check-control'}, [node('input', { type: 'checkbox', checked: value, onchange: e => change(e.target.checked) }), node('span',{text:t(label)})]); }
 function number(value, min = 0, max = 100, step = 1) { return node('input', { type: 'number', value, min, max, step, required: true }); }
 function select(options, value, change) {
   const input = node('select', { onchange: e => change?.(e.target.value) }, options.map(([id, label]) => node('option', { value: id, text: label })));
   input.value = value; return input;
 }
-function message(text = '', success = false) { notice.textContent = text; notice.hidden = !text; notice.classList.toggle('success', success); }
+function message(text = '', success = false) { notice.textContent = errorText(text); notice.hidden = !text; notice.classList.toggle('success', success); }
 async function safely(action) { try { await action(); } catch (e) { message(String(e)); } }
 function theme() { document.documentElement.dataset.theme = settings.appearance.toLowerCase(); }
-function shortcutHint() { $('#footer-hint').textContent = `Select area: ${shortcutLabel(settings.hotkey)} · stop: ${shortcutLabel(settings.stop_hotkey)}`; }
+function shortcutHint() { $('#footer-hint').textContent = t('Select area: {select} · stop: {stop}',{select:shortcutLabel(settings.hotkey),stop:shortcutLabel(settings.stop_hotkey)}); }
+function applyLanguage(){configureLanguage(settings.language,systemLanguage);translateShell();}
+function displayLabel(display){const number=/^Display (\d+)$/.exec(display.name)?.[1];return number?t('Display {number}',{number}):display.name;}
+function audioLabel(track){return track?.id.startsWith('embedded:')?t('Video audio {number}',{number:track.stream+1}):t(track?.label || 'Track unavailable');}
 function activeNav() { for (const id of ['home', 'settings','recordings']) { const n = $(`#${id}-nav`); if (page === id) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current'); } }
 function showPage(next) {
   editor?.cropEditor?.close();
@@ -52,7 +60,7 @@ function showPage(next) {
 
 function setJobBusy(value){jobBusy=value;document.querySelectorAll('nav button').forEach(b=>b.disabled=value);}
 function requireIdle() {
-  if (phase !== 'idle' || countdown || starting || jobBusy || editor?.busy) throw Error('Wait for the current operation to finish');
+  if (phase !== 'idle' || countdown || starting || jobBusy || editor?.busy) throw Error(t('Wait for the current operation to finish'));
 }
 async function navigate(next) {
   requireIdle();
@@ -69,38 +77,38 @@ async function openPending() {
 }
 function acceptDocument(document){editor?.destroy();editor=new Editor(document);showPage('editor');}
 async function refreshRecordings(){
-  if(phase!=='idle' || countdown || jobBusy || editor?.busy)throw Error('Wait for the current operation to finish');
+  if(phase!=='idle' || countdown || jobBusy || editor?.busy)throw Error(t('Wait for the current operation to finish'));
   await editor?.flush();showPage('recordings');
-  const loading=node('p',{text:'Loading recordings…','aria-live':'polite'});content.append(loading);
+  const loading=node('p',{text:t('Loading recordings…'),'aria-live':'polite'});content.append(loading);
   try{recordings=await invoke('recent_recordings');if(page==='recordings' && !jobBusy)renderRecordings();}finally{loading.remove();}
 }
 function renderRecordings(){
-  const header=node('div',{class:'page-heading'},[node('div',{},[node('h1',{text:'Recordings'}),node('p',{class:'muted',text:'Continue editing or recover an interrupted recording.'})]),button('Refresh',refreshRecordings)]);
+  const header=node('div',{class:'page-heading'},[node('div',{},[node('h1',{text:t('Recordings')}),node('p',{class:'muted',text:t('Continue editing or recover an interrupted recording.')})]),button('Refresh',refreshRecordings)]);
   content.replaceChildren(header);
-  if(!recordings.length){content.append(node('section',{class:'empty-state'},[node('h2',{text:'Your recordings will appear here'}),node('p',{class:'muted',text:'Select an area to record. Stop recording to open it in the editor.'}),button('Record screen',()=>navigate('home'),true)]));return;}
+  if(!recordings.length){content.append(node('section',{class:'empty-state'},[node('h2',{text:t('Your recordings will appear here')}),node('p',{class:'muted',text:t('Select an area to record. Stop recording to open it in the editor.')}),button('Record screen',()=>navigate('home'),true)]));return;}
   const list=node('div',{class:'recording-list'});
   for(const recording of recordings){
-    const date=recording.started_ms?new Date(recording.started_ms).toLocaleString('en',{dateStyle:'medium',timeStyle:'short'}):recording.id;
+    const date=recording.started_ms?new Date(recording.started_ms).toLocaleString(locale(),{dateStyle:'medium',timeStyle:'short'}):recording.id;
     const open=async id=>{requireIdle();await editor?.flush();setJobBusy(true);try{const document=await invoke('open_recording',{id});acceptDocument(document);}finally{setJobBusy(false);}};
     const recover=async()=>{
       requireIdle();await editor?.flush();setJobBusy(true);
-      const progress=node('section',{class:'panel spaced','aria-live':'polite'},[node('h2',{text:'Recovering complete fragments into a separate copy…'}),node('progress',{'aria-label':'Recording recovery'}),button('Cancel recovery',()=>invoke('cancel_recovery'))]);
+      const progress=node('section',{class:'panel spaced','aria-live':'polite'},[node('h2',{text:t('Recovering complete fragments into a separate copy…')}),node('progress',{'aria-label':'Recording recovery'}),button('Cancel recovery',()=>invoke('cancel_recovery'))]);
       content.querySelectorAll('button').forEach(b=>b.disabled=true);content.append(progress);
       try{const document=await invoke('recover_entry',{id:recording.id});acceptDocument(document);message('Recovered copy is ready. The original is unchanged.',true);}
       catch(error){message(String(error));recordings=await invoke('recent_recordings');renderRecordings();}
       finally{setJobBusy(false);progress.remove();}
     };
-    const row=node('article',{class:'recording-item'},[node('h2',{text:date}),node('p',{class:'muted',text:`${recording.needs_recovery?'Interrupted recording':'Saved'} · ${(recording.bytes/1048576).toFixed(1)} MB${recording.elapsed_ms?' · logged '+clock(recording.elapsed_ms):''}`})]);
-    if(recording.warning)row.append(node('p',{text:recording.warning}));
+    const row=node('article',{class:'recording-item'},[node('h2',{text:date}),node('p',{class:'muted',text:`${t(recording.needs_recovery?'Interrupted recording':'Saved')} · ${(recording.bytes/1048576).toFixed(1)}${t(' MB')}${recording.elapsed_ms?t(' · logged {time}',{time:clock(recording.elapsed_ms)}):''}`})]);
+    if(recording.warning)row.append(node('p',{text:errorText(recording.warning)}));
     const actions=node('div',{class:'actions'});
     if(recording.recovery_copy)actions.append(button('Open recovered copy',()=>open(recording.recovery_copy),true));
     const mainAction=button(recording.needs_recovery?'Recover copy':'Open',recording.needs_recovery?recover:()=>open(recording.id),!recording.recovery_copy);mainAction.disabled=!recording.source_exists;
     actions.append(mainAction,button('Show folder',()=>invoke('reveal_recording',{id:recording.id})));
     if(recording.needs_recovery && recording.source_exists)actions.append(button('Open original',()=>open(recording.id)));
-    if(!recording.source_exists)row.append(node('p',{text:'Source file is missing. Check the recording folder.'}));
+    if(!recording.source_exists)row.append(node('p',{text:t('Source file is missing. Check the recording folder.')}));
     row.append(actions);list.append(row);
   }
-  content.append(list,node('p',{class:'muted',text:'Recovery leaves the original unchanged and rebuilds the MP4 index in a copy. An incomplete final fragment may be lost.'}));
+  content.append(list,node('p',{class:'muted',text:t('Recovery leaves the original unchanged and rebuilds the MP4 index in a copy. An incomplete final fragment may be lost.')}));
 }
 function selected() { return displays.find(d => d.id === selectedDisplay) || displays[0]; }
 function fullRegion(d = selected()) { return { x: 0, y: 0, width: d.width & ~1, height: d.height & ~1 }; }
@@ -121,18 +129,18 @@ function regionInputs(value, width, height, update) {
 }
 
 function renderHome() {
-  content.replaceChildren(node('div',{class:'page-heading'},node('div',{},[node('h1', { text: 'Record your screen' }),node('p',{class:'muted',text:'Choose what to capture.'})])));
+  content.replaceChildren(node('div',{class:'page-heading'},node('div',{},[node('h1', { text: t('Record your screen') }),node('p',{class:'muted',text:t('Choose what to capture.')})])));
   const d = selected();
-  if (!d) { content.append(node('p', { text: 'No displays found. Connect a display and restart the app.' })); return; }
+  if (!d) { content.append(node('p', { text: t('No displays found. Connect a display and restart the app.') })); return; }
   region ||= fullRegion(d);
   if (phase !== 'idle' || countdown) {
-    content.append(node('p', {class:'muted',text:`${d.name} · ${region.width} × ${region.height} · ${settings.fps} FPS`}),
+    content.append(node('p', {class:'muted',text:`${displayLabel(d)} · ${region.width} × ${region.height} · ${settings.fps} FPS`}),
       node('section', {id:'capture-panel','aria-label':'Recording status',class:'panel spaced'}),
-      node('p',{class:'kbd-hint',text:`Stop: ${shortcutLabel(settings.stop_hotkey)} · pause: ${shortcutLabel(settings.pause_hotkey)}`}));
+      node('p',{class:'kbd-hint',text:t('Stop: {stop} · pause: {pause}',{stop:shortcutLabel(settings.stop_hotkey),pause:shortcutLabel(settings.pause_hotkey)})}));
     updateStatus(lastStatus && lastStatus.phase === phase ? lastStatus : {phase,elapsed_ms:0});
     return;
   }
-  const displaySelect = select(displays.map(d => [d.id, `${d.name} · ${d.width} × ${d.height}`]), d.id, value => { selectedDisplay = Number(value); region = fullRegion(); renderHome(); });
+  const displaySelect = select(displays.map(d => [d.id, `${displayLabel(d)} · ${d.width} × ${d.height}`]), d.id, value => { selectedDisplay = Number(value); region = fullRegion(); renderHome(); });
   displaySelect.disabled = phase !== 'idle';
   const outline=node('div',{class:'capture-outline'});
   const dimensions=node('strong',{class:'capture-dimensions'});
@@ -142,29 +150,29 @@ function renderHome() {
     Object.assign(diagram.style,{aspectRatio:`${d.width}/${d.height}`,width:`min(100%, ${Math.min(410,165*d.width/d.height)}px)`});
     Object.assign(outline.style,{left:`${region.x/d.width*100}%`,top:`${region.y/d.height*100}%`,width:`${region.width/d.width*100}%`,height:`${region.height/d.height*100}%`});
     dimensions.textContent=`${region.width} × ${region.height}`;
-    selectionLabel.textContent=region.width===fullRegion(d).width && region.height===fullRegion(d).height && !region.x && !region.y?'Entire display':'Selected area';
+    selectionLabel.textContent=t(region.width===fullRegion(d).width && region.height===fullRegion(d).height && !region.x && !region.y?'Entire display':'Selected area');
   };
   const area = regionInputs(region, d.width, d.height, value => { region = fitRegion(value, d.width, d.height); area.set(region); updateArea(); });
   const capture=node('section',{class:'capture-source'},[
     field('Display',displaySelect),
-    node('div',{class:'capture-map'},[diagram,node('div',{class:'capture-caption'},[selectionLabel,dimensions]),node('small',{text:'Capture area on this display'})]),
+    node('div',{class:'capture-map'},[diagram,node('div',{class:'capture-caption'},[selectionLabel,dimensions]),node('small',{text:t('Capture area on this display')})]),
     node('div', { class: 'area-actions' }, [button('Select area', () => invoke('select_area', { displayId: d.id, region:overlayRegion() })), button('Entire display', () => { region = fullRegion(); area.set(region); updateArea(); })]),
-    node('details',{class:'coordinates'},[node('summary',{text:'Exact coordinates'}),area.element])
+    node('details',{class:'coordinates'},[node('summary',{text:t('Exact coordinates')}),area.element])
   ]);
   const preferences=node('section',{class:'capture-preferences'},[
-    node('h2',{text:'Recording settings'}),
+    node('h2',{text:t('Recording settings')}),
     node('dl',{class:'capture-specs'},[
-      node('div',{},[node('dt',{text:'Frame rate'}),node('dd',{},[String(settings.fps),node('small',{text:' FPS'})])]),
-      node('div',{},[node('dt',{text:'Bitrate'}),node('dd',{},[String(settings.bitrate_mbps),node('small',{text:' Mbps'})])]),
-      node('div',{},[node('dt',{text:'Cursor'}),node('dd',{text:settings.show_cursor?'Visible':'Hidden'})])
+      node('div',{},[node('dt',{text:t('Frame rate')}),node('dd',{},[String(settings.fps),node('small',{text:' FPS'})])]),
+      node('div',{},[node('dt',{text:t('Bitrate')}),node('dd',{},[String(settings.bitrate_mbps),node('small',{text:t(' Mbps')})])]),
+      node('div',{},[node('dt',{text:t('Cursor')}),node('dd',{text:t(settings.show_cursor?'Visible':'Hidden')})])
     ]),button('Change settings',()=>navigate('settings')),
-    node('h2',{class:'spaced',text:'Audio sources'}),
+    node('h2',{class:'spaced',text:t('Audio sources')}),
     node('div', { class: 'audio-quick' }, [check('System audio', settings.audio.system, value => quickAudio('system', value)), check('Microphone', settings.audio.microphone, value => quickAudio('microphone', value))]),
-    node('p',{class:'muted audio-note',text:'Adjust each track’s volume after recording.'})
+    node('p',{class:'muted audio-note',text:t('Adjust each track’s volume after recording.')})
   ]);
   const controls = node('fieldset', { disabled: phase !== 'idle' || !!countdown }, [
     node('div',{class:'capture-layout'},[capture,preferences]),
-    node('div', { class: 'capture-start' }, [node('div',{},[node('strong',{text:'Ready to record'}),node('p',{class:'muted',text:settings.countdown_seconds?`Recording starts after a ${settings.countdown_seconds} s countdown.`:'Recording starts immediately.'})]),button('Start recording', begin, true)])
+    node('div', { class: 'capture-start' }, [node('div',{},[node('strong',{text:t('Ready to record')}),node('p',{class:'muted',text:settings.countdown_seconds?t('Recording starts after a {seconds} s countdown.',{seconds:settings.countdown_seconds}):t('Recording starts immediately.')})]),button('Start recording', begin, true)])
   ]);
   const status = node('section', { id: 'capture-panel', 'aria-label': 'Recording status', class: 'panel spaced' });
   content.append(controls, status);
@@ -186,7 +194,7 @@ async function begin() {
     if (seconds) {
       countdown=true;showPage('home');
       const proceed=await new Promise(resolve=>{
-        const title=node('h2',{text:`Starting in ${seconds}…`,role:'status'});
+        const title=node('h2',{text:t('Starting in {seconds}…',{seconds}),role:'status'});
         const finish=value=>{clearInterval(countTimer);countdown=false;cancelCountdown=null;resolve(value);};
         cancelCountdown=()=>finish(false);
         const cancel=button('Cancel',()=>cancelCountdown?.());
@@ -195,7 +203,7 @@ async function begin() {
         countTimer=setInterval(()=>{
           const remaining=Math.ceil((deadline-performance.now())/1000);
           if(remaining<=0){finish(true);return;}
-          const text=`Starting in ${remaining}…`;if(title.textContent!==text)title.textContent=text;
+          const text=t('Starting in {seconds}…',{seconds:remaining});if(title.textContent!==text)title.textContent=text;
         },100);
       });
       if(!proceed){showPage('home');content.querySelector('.capture-start button')?.focus();return;}
@@ -214,53 +222,55 @@ function updateStatus(status) {
   const title = { preparing: 'Preparing recording…', recording: 'Recording', paused: 'Paused', saving: 'Saving recording…' }[phase];
   if (panel.dataset.phase !== phase) {
     panel.dataset.phase = phase;
-    panel.replaceChildren(node('h2', { text: title }), node('p', { id: 'record-time', class: 'recording-timer', text: clock(status.elapsed_ms) }),
+    panel.replaceChildren(node('h2', { text: t(title) }), node('p', { id: 'record-time', class: 'recording-timer', text: clock(status.elapsed_ms) }),
       node('div', { class: 'row' }, [button(phase === 'paused' ? 'Resume' : 'Pause', () => invoke('pause_capture')), button('Stop and save', () => invoke('stop_capture'), true), button('Compact controls', () => invoke('compact_capture'))]),
       node('p', { id: 'record-encoder', class: 'muted' }), node('div', { id: 'record-meters', class: 'stack' }));
     panel.querySelectorAll('button').forEach((b,i) => b.disabled = phase === 'saving' || (phase === 'preparing' && i===0));
-    for (const [role, label] of [['system', 'System audio'], ['microphone', 'Microphone']]) if (settings.audio[role]) $('#record-meters').append(node('label', { class: 'meter-row' }, [label, node('meter', { id: `${role}-meter`, min: 0, max: 100, value: 0 })]));
+    for (const [role, label] of [['system', 'System audio'], ['microphone', 'Microphone']]) if (settings.audio[role]) $('#record-meters').append(node('label', { class: 'meter-row' }, [t(label), node('meter', { id: `${role}-meter`, min: 0, max: 100, value: 0 })]));
   }
   $('#record-time').textContent = clock(status.elapsed_ms);
-  $('#record-encoder').textContent = status.encoder ? `${status.encoder} · ${status.frames} frames · ${status.dropped_frames} dropped` : 'Waiting for the first frame';
+  $('#record-encoder').textContent = status.encoder ? t('{encoder} · {frames} frames · {dropped} dropped',{encoder:status.encoder,frames:status.frames,dropped:status.dropped_frames}) : t('Waiting for the first frame');
   for (const role of ['system', 'microphone']) if ($(`#${role}-meter`)) $(`#${role}-meter`).value = status[`${role}_level`] ?? 0;
 }
 
 function renderSettings() {
   const draft = clone(settings);
   const form = node('form', { class: 'settings-form' });
-  form.addEventListener('submit', e => { e.preventDefault(); safely(async () => { if (!form.reportValidity()) return; const submit=form.querySelector('[type=submit]');submit.disabled=true;try{await invoke('save_settings', { settings: draft }); settings = draft; theme(); shortcutHint();message('Settings saved', true);}finally{submit.disabled=false;} }); });
+  form.addEventListener('submit', e => { e.preventDefault(); safely(async () => { if (!form.reportValidity()) return; const submit=form.querySelector('[type=submit]');submit.disabled=true;try{await invoke('save_settings', { settings: draft }); const previous=locale();settings = draft; applyLanguage();theme(); shortcutHint();if(previous!==locale()){renderSettings();content.querySelector('[type=submit]').focus();}message('Settings saved', true);}finally{submit.disabled=false;} }); });
   function valueField(label, key, input) { input.addEventListener('change', () => draft[key] = input.type === 'number' ? Number(input.value) : input.value); return field(label, input); }
-  const basics = node('fieldset', {}, [node('legend', { text: 'Video' }),
+  const basics = node('fieldset', {}, [node('legend', { text: t('Video') }),
     field('Frame rate', select([15, 24, 30, 60].map(n => [n, `${n} FPS`]), draft.fps, value => draft.fps = Number(value))),
     valueField('Bitrate, Mbps', 'bitrate_mbps', number(draft.bitrate_mbps, 1, 100)),
     valueField('Countdown, seconds', 'countdown_seconds', number(draft.countdown_seconds, 0, 10)),
     check('Show cursor in recording', draft.show_cursor, v => draft.show_cursor = v),
-    node('p', { class: 'muted', text: 'Higher frame rates and bitrates improve motion detail and increase file size.' })]);
-  const audio = node('fieldset', {}, [node('legend', { text: 'Audio' })]);
+    node('p', { class: 'muted', text: t('Higher frame rates and bitrates improve motion detail and increase file size.') })]);
+  const audio = node('fieldset', {}, [node('legend', { text: t('Audio') })]);
   for (const [role, label, options] of [['system', 'System audio', systemDevices], ['microphone', 'Microphone', micDevices]]) {
-    audio.append(check(label, draft.audio[role], value => draft.audio[role] = value), field('Device', select(options.map(d => [d.id, d.name]), draft.audio[`${role}_device`] || '', value => draft.audio[`${role}_device`] = value || null)));
+    audio.append(check(label, draft.audio[role], value => draft.audio[role] = value), field('Device', select(options.map(d => [d.id, d.id?d.name:t('Default device')]), draft.audio[`${role}_device`] || '', value => draft.audio[`${role}_device`] = value || null)));
   }
-  const keys = node('fieldset', {}, [node('legend', { text: 'Keyboard shortcuts' })]);
+  const keys = node('fieldset', {}, [node('legend', { text: t('Keyboard shortcuts') })]);
   const mac=/Mac/.test(navigator.platform);
   for (const [key,label,fallback] of shortcutActions) {
     const picker=button(shortcutLabel(draft[key],mac),()=>recordShortcut({label,value:draft[key],invoke,subscribe:listen,onAccept:value=>{
-      const conflict=shortcutConflict(draft,key,value);if(conflict)throw Error(`Shortcut already used by: ${conflict}`);
+      const conflict=shortcutConflict(draft,key,value);if(conflict)throw Error(t('Shortcut already used by: {action}',{action:t(conflict)}));
       draft[key]=value;picker.textContent=shortcutLabel(value,mac);
     }}));
-    picker.classList.add('shortcut-picker');picker.title='Click and press your shortcut';
-    const reset=button('Reset',()=>{const conflict=shortcutConflict(draft,key,fallback);if(conflict)throw Error(`Default shortcut already used by: ${conflict}`);draft[key]=fallback;picker.textContent=shortcutLabel(fallback,mac);});reset.setAttribute('aria-label',`Reset: ${label}`);
+    picker.classList.add('shortcut-picker');picker.title=t('Click and press your shortcut');
+    const reset=button('Reset',()=>{const conflict=shortcutConflict(draft,key,fallback);if(conflict)throw Error(t('Default shortcut already used by: {action}',{action:t(conflict)}));draft[key]=fallback;picker.textContent=shortcutLabel(fallback,mac);});reset.setAttribute('aria-label',t('Reset: {action}',{action:t(label)}));
     keys.append(node('div',{class:'shortcut-row'},[field(label,picker),reset]));
   }
-  keys.append(node('small', { text: 'Click a shortcut and press your keys, then save settings. Shortcuts used by another app cannot be assigned.' }));
-  const app = node('fieldset', { class: 'stack' }, [node('legend', { text: 'Application' }),
-    field('Theme', select([['System', 'System'], ['Light', 'Light'], ['Dark', 'Dark']], draft.appearance, v => draft.appearance = v)),
+  keys.append(node('small', { text: t('Click a shortcut and press your keys, then save settings. Shortcuts used by another app cannot be assigned.') }));
+  const app = node('fieldset', { class: 'stack' }, [node('legend', { text: t('Application') }),
+    field('Theme', select([['System', t('System')], ['Light', t('Light')], ['Dark', t('Dark')]], draft.appearance, v => draft.appearance = v)),
+    field('Language', select([['System',t('Automatic (system)')],['Russian','Русский'],['English','English']], draft.language || 'System', v => draft.language = v)),
+    node('p',{class:'muted',text:t('System language: {language}. English is used when a translation is unavailable.',{language:systemLanguage})}),
     check('Open editor after recording', draft.open_editor, v => draft.open_editor = v),
     check('Start minimized to tray', draft.start_in_tray, v => draft.start_in_tray = v),
     check('Launch at login', draft.autostart, v => draft.autostart = v),
     node('p', { class: 'path', id: 'output-path', text: draft.output_dir }),
     button('Recording folder', async () => { const value = await invoke('choose_folder'); if (value) { draft.output_dir = value; $('#output-path').textContent = value; } })]);
   for(const section of [basics,audio,keys,app])section.classList.add('settings-section');
-  form.append(node('div',{class:'page-heading'},node('div',{},[node('h1', { text: 'Settings' }),node('p',{class:'muted',text:'Video, audio and keyboard shortcuts.'})])), node('div', { class: 'grid' }, [node('div', {}, [basics, audio]), node('div', {}, [keys, app])]), node('div',{class:'settings-save'},node('button', { type: 'submit', class: 'primary', text: 'Save settings' })));
+  form.append(node('div',{class:'page-heading'},node('div',{},[node('h1', { text: t('Settings') }),node('p',{class:'muted',text:t('Video, audio and keyboard shortcuts.')})])), node('div', { class: 'grid' }, [node('div', {}, [basics, audio]), node('div', {}, [keys, app])]), node('div',{class:'settings-save'},node('button', { type: 'submit', class: 'primary', text: t('Save settings') })));
   form.querySelectorAll('button:not([type])').forEach(b => b.type = 'button');
   content.replaceChildren(form);
 }
@@ -270,7 +280,7 @@ class Editor {
     this.document = document; this.project = clone(document.project); this.undo = []; this.redo = []; this.audios = []; this.playing = false; this.busy = false;
     this.revision=0;this.savedRevision=0;this.pendingSaves=0;
   }
-  pause() { this.playbackToken=(this.playbackToken||0)+1;this.playPending=false;this.previewRange=null;this.video?.pause(); this.audios.forEach(a => a.element.pause()); this.context?.suspend().catch(()=>{});this.playing = false; cancelAnimationFrame(this.animation); if (this.playButton) {this.playButton.textContent = 'Play';this.playButton.disabled=!!this.busy;} }
+  pause() { this.playbackToken=(this.playbackToken||0)+1;this.playPending=false;this.previewRange=null;this.video?.pause(); this.audios.forEach(a => a.element.pause()); this.context?.suspend().catch(()=>{});this.playing = false; cancelAnimationFrame(this.animation); if (this.playButton) {this.playButton.textContent = t('Play');this.playButton.disabled=!!this.busy;} }
   destroy() { this.cropEditor?.close();this.pause(); this.context?.close();this.timeline?.destroy();clearTimeout(this.saveTimer); }
   editCrop() {
     if(this.busy || this.cropEditor)return;
@@ -281,7 +291,7 @@ class Editor {
   renderSaveStatus(){
     if(!this.saveStatus)return;
     const saving=this.pendingSaves>0 || this.savedRevision<this.revision;
-    this.saveStatus.textContent=this.saveError?`Edits not saved: ${this.saveError.message}`:saving?'Saving edits…':this.hasSaved?'Edits saved':'Edits save automatically';
+    this.saveStatus.textContent=this.saveError?t('Edits not saved: {error}',{error:errorText(this.saveError.message)}):t(saving?'Saving edits…':this.hasSaved?'Edits saved':'Edits save automatically');
     this.saveStatus.classList.toggle('save-error',!!this.saveError);
     if(!this.saveError && document.activeElement===this.retrySave)this.saveStatus.focus();
     this.retrySave.hidden=!this.saveError;this.retrySave.disabled=this.pendingSaves>0 || this.busy;
@@ -316,7 +326,7 @@ class Editor {
     this.video.addEventListener('error', () => message('The system player could not open this video. MP4 export is still available. Check the source format and your system H.264 decoder.'));
     this.video.addEventListener('loadedmetadata', () => this.seek(0));
     this.video.addEventListener('seeked', () => { this.syncAudio(true); this.updateTime(); });
-    this.video.addEventListener('ended', () => this.pause());
+    this.video.addEventListener('ended', () => {if(this.video.ended && !this.finishPreview())this.pause();});
     this.video.addEventListener('waiting', () => { this.audios.filter(a=>a.element!==this.video).forEach(a => a.element.pause()); });
     this.video.addEventListener('playing', () => this.syncAudio(true));
     this.video.addEventListener('timeupdate', () => { this.enforceRanges(); this.updateTime(); });
@@ -326,9 +336,17 @@ class Editor {
       this.audios.push({ id: track.id, element });
     }
     if (!doc.info.audio.some(a => a.id === 'embedded:0')) this.video.muted = true;
+    this.playbackRate ||= 1;
+    this.speedControl=select([.5,1,1.5,2].map(rate=>[rate,`${rate}×`]),this.playbackRate,value=>{
+      this.playbackRate=Number(value);this.video.playbackRate=this.playbackRate;
+      this.audios.forEach(track=>track.element.playbackRate=this.playbackRate);
+    });
+    this.speedControl.title=t('Preview only. Export keeps the original speed.');
+    this.video.playbackRate=this.playbackRate;this.audios.forEach(track=>track.element.playbackRate=this.playbackRate);
+    const speed=field('Preview speed',this.speedControl);speed.classList.add('preview-speed');
     this.viewport = node('div', { class: 'player-viewport' }, this.video);
     this.viewport.addEventListener('dblclick',()=>this.editCrop());
-    this.viewport.title='Double-click to crop';
+    this.viewport.title=t('Double-click to crop');
     this.playButton = button('Play', () => this.toggle());
     this.seekbar = node('input', { type: 'range', min: 0, max: duration(this.project), step: 1_000_000 / doc.info.fps, value: 0, 'aria-label': 'Position in edited video', oninput: e => { this.pause(); this.seek(Number(e.target.value)); } });
     this.time = node('time');
@@ -341,11 +359,11 @@ class Editor {
     this.undoButton = button('Undo', () => this.changeHistory(false)); this.redoButton = button('Redo', () => this.changeHistory(true));
     this.audioControls = node('div');
     this.controls.append(
-      node('h2',{class:'inspector-title',text:'Edit'}),
+      node('h2',{class:'inspector-title',text:t('Edit')}),
       node('div', { class: 'history-actions' }, [this.undoButton, this.redoButton]),
       node('div',{class:'export-actions'},button('Save project', () => this.save())),
       toolSection('Editing shortcuts',[
-        node('dl',{class:'shortcut-help'},[['Space','Play / pause'],['S','Split at playhead'],['I / O','Selection start / end'],['Delete','Delete selection'],['Esc','Clear selection'],['← / →','Previous / next frame'],['Shift + ← / →','Move 10 frames'],['Home / End','Video start / end'],['Ctrl / ⌘ + S','Save project'],['Ctrl / ⌘ + Shift + S','Export MP4'],['Ctrl / ⌘ + Z','Undo'],['Ctrl / ⌘ + Shift + Z','Redo']].map(([key,description])=>node('div',{},[node('dt',{text:key}),node('dd',{text:description})]))) ]),
+        node('dl',{class:'shortcut-help'},[['Space','Play / pause'],['S','Split at playhead'],['I / O','Selection start / end'],['Delete','Delete selection'],['Esc','Clear selection'],['← / →','Previous / next frame'],['Shift + ← / →','Move 10 frames'],['Home / End','Video start / end'],['Ctrl / ⌘ + S','Save project'],['Ctrl / ⌘ + Shift + S','Export MP4'],['Ctrl / ⌘ + Z','Undo'],['Ctrl / ⌘ + Shift + Z','Redo']].map(([key,description])=>node('div',{},[node('dt',{text:key}),node('dd',{text:t(description)})]))) ]),
       toolSection('Crop',[this.cropInfo,node('div',{class:'row'},[button('Crop video',()=>this.editCrop()),this.resetCrop])]),
       toolSection('Audio',this.audioControls)
     );
@@ -353,15 +371,15 @@ class Editor {
     const preview=node('section',{class:'editor-preview','aria-label':'Video and timeline'},[
       node('div', { class: 'player-shell' }, this.viewport),
       node('div', { class: 'transport' }, [this.playButton, this.seekbar, this.time]),
-      node('div',{class:'frame-controls'},[button('Previous frame',()=>this.step(-1)),button('Next frame',()=>this.step(1)),button('Previous cut',()=>this.timeline.jumpCut(-1)),button('Next cut',()=>this.timeline.jumpCut(1)),node('span', { class: 'muted', id: 'source-position' })]),
-      node('p', { class: 'kbd-hint', text: 'Space: play. Arrows: step by frame. Your source video stays unchanged.' })
+      node('div',{class:'frame-controls'},[button('Previous frame',()=>this.step(-1)),button('Next frame',()=>this.step(1)),button('Previous cut',()=>this.timeline.jumpCut(-1)),button('Next cut',()=>this.timeline.jumpCut(1)),speed,node('span', { class: 'muted', id: 'source-position' })]),
+      node('p', { class: 'kbd-hint', text: t('Space: play. Arrows: step by frame. Your source video stays unchanged.') })
     ]);
     this.saveStatus=node('p',{class:'save-status muted',role:'status',tabIndex:-1});
     this.retrySave=button('Retry save',async()=>{await this.persist();message();});this.retrySave.hidden=true;
     this.exportButton=button('Export MP4', () => this.export(), true);
     content.replaceChildren(node('div', { class: 'page-heading' }, [node('div',{},[node('h1', { text: doc.source.split(/[\\/]/).at(-1) }),node('p',{class:'muted',text:`${doc.info.width} × ${doc.info.height} · ${doc.info.fps} FPS`}),node('div',{class:'save-feedback'},[this.saveStatus,this.retrySave])]),node('div',{class:'editor-heading-actions'},[button('Show folder', () => invoke('reveal_project')),this.exportButton])]),
       node('div',{class:'editor-workspace'},[preview,this.timeline.element,node('aside',{class:'editor-inspector','aria-label':'Editing tools'},[this.controls,this.exportState])]));
-    for(const warning of doc.warnings||[])content.append(node('p',{class:'notice',text:warning}));
+    for(const warning of doc.warnings||[])content.append(node('p',{class:'notice',text:errorText(warning)}));
     this.refresh();
     this.renderSaveStatus();
   }
@@ -370,22 +388,22 @@ class Editor {
     this.viewport.style.aspectRatio = `${crop.width}/${crop.height}`;
     this.viewport.style.width = `min(100%, calc(var(--preview-height, 300px) * ${crop.width/crop.height}))`;
     Object.assign(this.video.style, { width: `${width / crop.width * 100}%`, left: `${-crop.x / crop.width * 100}%`, top: `${-crop.y / crop.height * 100}%` });
-    this.cropInfo.textContent=this.project.crop?`Output: ${crop.width} × ${crop.height} px`:`Full frame: ${width} × ${height} px`;
+    this.cropInfo.textContent=this.project.crop?t('Output: {width} × {height} px',crop):t('Full frame: {width} × {height} px',{width,height});
     this.resetCrop.disabled=!this.project.crop;
     this.seekbar.max = Math.max(0, duration(this.project) - 1_000_000 / this.document.info.fps);
     this.undoButton.disabled = !this.undo.length; this.redoButton.disabled = !this.redo.length;
     this.timeline.update(this.project);
     this.audioControls.replaceChildren(check('Mute all audio', this.project.muted, value => this.commit(p => p.muted = value)));
     for (const [index, track] of this.project.audio.entries()) {
-      const label = this.document.info.audio.find(a => a.id === track.track_id)?.label || 'Track unavailable';
-      const output = node('output', { text: `${track.gain_db > 0 ? '+' : ''}${track.gain_db} dB` });
-      const slider = node('input', { type: 'range', min: -60, max: 20, step: 1, value: track.gain_db, 'aria-label': `Volume: ${label}` });
+      const label = audioLabel(this.document.info.audio.find(a => a.id === track.track_id));
+      const output = node('output', { text: t('{value} dB',{value:`${track.gain_db > 0 ? '+' : ''}${track.gain_db}`}) });
+      const slider = node('input', { type: 'range', min: -60, max: 20, step: 1, value: track.gain_db, 'aria-label': t('Volume: {track}',{track:t(label)}) });
       let original;
-      slider.addEventListener('input', () => { original ||= clone(this.project); this.project.audio[index].gain_db = Number(slider.value); output.textContent = `${slider.value} dB`; this.applyMix(); });
+      slider.addEventListener('input', () => { original ||= clone(this.project); this.project.audio[index].gain_db = Number(slider.value); output.textContent = t('{value} dB',{value:slider.value}); this.applyMix(); });
       slider.addEventListener('change', () => { if (original) { this.undo.push(original); this.redo = []; original = null; this.undoButton.disabled = false;this.changed(); } });
       this.audioControls.append(node('div', { class: 'audio-track' }, [check(label, !track.muted, value => this.commit(p => p.audio[index].muted = !value)), slider, output]));
     }
-    if (this.document.info.audio.some(a => a.id.startsWith('embedded:') && a.stream > 0)) this.audioControls.append(node('p', { class: 'muted', text: 'This video has multiple embedded audio streams. Preview plays the first; export mixes all enabled tracks.' }));
+    if (this.document.info.audio.some(a => a.id.startsWith('embedded:') && a.stream > 0)) this.audioControls.append(node('p', { class: 'muted', text: t('This video has multiple embedded audio streams. Preview plays the first; export mixes all enabled tracks.') }));
     this.enforceRanges(); this.applyMix(); this.updateTime();
   }
   seek(at) {
@@ -395,11 +413,25 @@ class Editor {
     this.syncAudio(true);this.updateTime();
   }
   step(amount) { this.pause(); this.seek(Math.max(0, Math.min(duration(this.project) - 1e6 / this.document.info.fps, editedTime(this.project, this.video.currentTime * 1e6) + amount * 1e6 / this.document.info.fps))); }
+  finishPreview() {
+    if(!this.playing || !this.previewRange)return false;
+    const range=this.previewRange;
+    if(this.timeline.loopPreview){
+      this.seek(range.start);
+      if(this.video.paused){
+        const token=this.playbackToken;
+        this.video.play().catch(error=>{if(token===this.playbackToken){this.pause();message(t('Cannot repeat preview: {error}',{error:errorText(error)}));}});
+      }
+    }else{
+      this.pause();this.seek(Math.max(range.start,range.end-1e6/this.document.info.fps));
+    }
+    return true;
+  }
   enforceRanges() {
     if (!Number.isFinite(this.video.currentTime)) return;
     const at = this.video.currentTime * 1e6;
     if(this.playing && this.previewRange && editedTime(this.project,at)>=this.previewRange.end-0.5){
-      const last=Math.max(this.previewRange.start,this.previewRange.end-1e6/this.document.info.fps);this.pause();this.seek(last);return;
+      this.finishPreview();return;
     }
     if (this.project.keep.some(r => at >= r.start_us - 0.5 && at < r.end_us - 0.5)) return;
     const next = this.project.keep.find(r => r.start_us > at);
@@ -409,9 +441,9 @@ class Editor {
   }
   updateTime() {
     const at = editedTime(this.project, (this.video.currentTime || 0) * 1e6);
-    this.seekbar.value = at; this.time.textContent = `${seconds(at)} / ${seconds(duration(this.project))} s`;
-    this.timeline.position(at);
-    const source = $('#source-position'); if (source) source.textContent = `Source: ${seconds((this.video.currentTime || 0) * 1e6)} s`;
+    this.seekbar.value = at; this.time.textContent = t('{position} / {duration} s',{position:seconds(at),duration:seconds(duration(this.project))});
+    this.timeline.position(at,{follow:this.playing});
+    const source = $('#source-position'); if (source) source.textContent = t('Source: {time} s',{time:seconds((this.video.currentTime || 0) * 1e6)});
   }
   async sound() {
     if (!this.context) {
@@ -431,7 +463,7 @@ class Editor {
     for (const track of this.audios) {
       if (track.element === this.video) continue;
       if (force || Math.abs(track.element.currentTime - this.video.currentTime) > 0.06) track.element.currentTime = this.video.currentTime;
-      if (this.playing && this.video.readyState >= 3 && this.video.currentTime < (track.element.duration || Infinity)) track.element.play().catch(e => message(`Cannot play audio track: ${e.message}`));
+      if (this.playing && this.video.readyState >= 3 && this.video.currentTime < (track.element.duration || Infinity)) track.element.play().catch(e => message(t('Cannot play audio track: {error}',{error:errorText(e)})));
       else track.element.pause();
     }
   }
@@ -450,7 +482,7 @@ class Editor {
       if(token!==this.playbackToken)return;
     }catch(error){if(token===this.playbackToken){this.pause();throw error;}return;}
     finally{if(token===this.playbackToken){this.playPending=false;this.playButton.disabled=!!this.busy;}}
-    this.syncAudio(true); this.playButton.textContent = 'Pause';
+    this.syncAudio(true); this.playButton.textContent = t('Pause');
     const frame = () => { if (!this.playing) return; this.enforceRanges(); this.updateTime(); this.syncAudio(); this.animation = requestAnimationFrame(frame); }; frame();
   }
   async save() { await this.flush();if(!this.revision)await this.persist();message('Project saved beside the source video', true); }
@@ -464,21 +496,21 @@ class Editor {
     const project=clone(this.project);
     if(range)project.keep=editTimeline(project.keep,range.start,range.end,true);
     const crop=project.crop||this.document.info;
-    const summary=`${range?'Selected range':'Entire edit'} · ${seconds(duration(project))} s · ${crop.width} × ${crop.height}`;
-    this.pause();this.busy = true; this.controls.disabled = true; this.exportButton.disabled=true;this.playButton.disabled = true;this.timeline.setBusy(true);setJobBusy(true);this.renderSaveStatus();
+    const summary=t('{range} · {duration} s · {width} × {height}',{range:t(range?'Selected range':'Entire edit'),duration:seconds(duration(project)),width:crop.width,height:crop.height});
+    this.pause();this.busy = true; this.controls.disabled = true; this.exportButton.disabled=true;this.playButton.disabled = true;this.speedControl.disabled=true;this.timeline.setBusy(true);setJobBusy(true);this.renderSaveStatus();
     this.progress = node('progress', { value: 0, max: 1, 'aria-label': 'Export progress' });
-    const progressText=node('p',{text:'Exporting MP4…'});
-    this.exportState.replaceChildren(progressText,node('p',{class:'muted',text:summary}),this.progress,button('Cancel export',async()=>{await invoke('cancel_export');progressText.textContent='Cancelling export…';}));
+    const progressText=node('p',{text:t('Exporting MP4…')});
+    this.exportState.replaceChildren(progressText,node('p',{class:'muted',text:summary}),this.progress,button('Cancel export',async()=>{await invoke('cancel_export');progressText.textContent=t('Cancelling export…');}));
     this.revealExport();
     try {
-      try{await this.flush();}catch(error){message(`Could not save the project beside the source: ${error}. Export uses your current edits.`);}
+      try{await this.flush();}catch(error){message(t('Could not save the project beside the source: {error}. Export uses your current edits.',{error:errorText(error)}));}
       const path = await invoke('export_video', { documentId:this.document.document_id,project,selection:!!range });
-      if(path)this.exportState.replaceChildren(node('h3',{text:range?'Selection exported':'Video exported'}),node('p',{class:'muted',text:summary}),node('p',{class:'export-path',text:path}),node('div',{class:'row'},[button('Open video',()=>invoke('open_export',{folder:false})),button('Open folder',()=>invoke('open_export',{folder:true}))]));
-      else this.exportState.replaceChildren(node('p',{text:'Export cancelled'}));
+      if(path)this.exportState.replaceChildren(node('h3',{text:t(range?'Selection exported':'Video exported')}),node('p',{class:'muted',text:summary}),node('p',{class:'export-path',text:path}),node('div',{class:'row'},[button('Open video',()=>invoke('open_export',{folder:false})),button('Open folder',()=>invoke('open_export',{folder:true}))]));
+      else this.exportState.replaceChildren(node('p',{text:t('Export cancelled')}));
       this.revealExport();
     }
-    catch(error){this.exportState.replaceChildren(node('p',{text:'Could not export MP4. Try exporting again.'}));throw error;}
-    finally { this.progress=null;this.busy = false; this.controls.disabled = false; this.exportButton.disabled=false;this.playButton.disabled = false;this.timeline.setBusy(false);setJobBusy(false);this.renderSaveStatus(); }
+    catch(error){this.exportState.replaceChildren(node('p',{text:t('Could not export MP4. Try exporting again.')}));throw error;}
+    finally { this.progress=null;this.busy = false; this.controls.disabled = false; this.exportButton.disabled=false;this.playButton.disabled = false;this.speedControl.disabled=false;this.timeline.setBusy(false);setJobBusy(false);this.renderSaveStatus(); }
   }
 }
 
@@ -501,23 +533,23 @@ async function overlay() {
   const stage = node('div', { class: 'selection-stage' });
   const shade = node('div', { class: 'selection-shade' });
   const box = node('div', { class: 'selection-box' }, ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map(handle => node('span', { class: 'handle', 'data-handle': handle })));
-  box.tabIndex=0;box.setAttribute('role','group');box.setAttribute('aria-label','Capture area. Arrow keys move it. Alt and arrow keys resize it.');
+  box.tabIndex=0;box.setAttribute('role','group');box.setAttribute('aria-label',t('Capture area. Arrow keys move it. Alt and arrow keys resize it.'));
   const inputs = regionInputs(rect, width, height, value => { rect = fitRegion(value, width, height); exists = true; draw(); });
   const feedback=node('p',{class:'selection-feedback',role:'alert',hidden:true});
   const dimensions=node('output',{class:'selection-dimensions'});
   const perform=async(action)=>{
     if(pending)return;pending=true;feedback.hidden=true;
     toolbar.querySelectorAll('button,input').forEach(control=>control.disabled=true);
-    try{await action();}catch(error){feedback.textContent=String(error);feedback.hidden=false;}
+    try{await action();}catch(error){feedback.textContent=errorText(error);feedback.hidden=false;}
     finally{pending=false;toolbar.querySelectorAll('button,input').forEach(control=>control.disabled=false);draw();}
   };
   const confirm=(startRecording=true)=>{
     if(exists && !inputs.inputs.some(input=>!input.reportValidity()))return perform(()=>invoke('apply_region',{displayId,region:rect,startRecording}));
   };
   const cancel=()=>perform(()=>invoke('cancel_selection'));
-  const toolbar = node('div', { class: 'selection-toolbar' }, [dimensions,node('div', { class: 'row' }, [button('Record area',()=>confirm(),true),button('Use area',()=>confirm(false)),button('Cancel',cancel)]),node('details',{},[node('summary',{text:'Exact coordinates'}),inputs.element]),node('small', { text: 'Enter: record · Esc: cancel · arrows: move · Alt+arrows: resize' }),feedback]);
+  const toolbar = node('div', { class: 'selection-toolbar' }, [dimensions,node('div', { class: 'row' }, [button('Record area',()=>confirm(),true),button('Use area',()=>confirm(false)),button('Cancel',cancel)]),node('details',{},[node('summary',{text:t('Exact coordinates')}),inputs.element]),node('small', { text: t('Enter: record · Esc: cancel · arrows: move · Alt+arrows: resize') }),feedback]);
   toolbar.querySelector('details').addEventListener('toggle',draw);
-  stage.append(shade, box, node('div', { class: 'selection-help', text: 'Drag to select an area. Move it or resize it using the handles.' }), toolbar); document.body.append(stage);
+  stage.append(shade, box, node('div', { class: 'selection-help', text: t('Drag to select an area. Move it or resize it using the handles.') }), toolbar); document.body.append(stage);
   const point = e => ({ x: Math.round(e.clientX * width / innerWidth), y: Math.round(e.clientY * height / innerHeight) });
   function draw() {
     box.hidden=!exists;toolbar.hidden=!exists && feedback.hidden;shade.hidden=exists;
@@ -558,7 +590,7 @@ async function overlay() {
 async function main() {
   if (new URLSearchParams(location.search).has('overlay')) { await overlay(); return; }
   setJobBusy(true);
-  $('#home-nav').onclick = () => safely(async () => { if (jobBusy || editor?.busy || countdown || starting) throw Error('Wait for the current operation to finish'); await editor?.flush(); showPage('home'); });
+  $('#home-nav').onclick = () => safely(async () => { if (jobBusy || editor?.busy || countdown || starting) throw Error(t('Wait for the current operation to finish')); await editor?.flush(); showPage('home'); });
   $('#settings-nav').onclick = () => safely(() => navigate('settings'));
   $('#recordings-nav').onclick = () => safely(refreshRecordings);
   $('#open-nav').onclick = () => safely(() => openVideo());
@@ -574,7 +606,7 @@ async function main() {
   await listen('export-progress', e => { if (editor?.progress) editor.progress.value = e.payload; });
   await listen('ui-error', e => message(e.payload));
   const data = await invoke('bootstrap'); settings = data.settings; displays = data.displays; selectedDisplay = displays[0]?.id; systemDevices = data.system_devices; micDevices = data.microphone_devices; recordings = data.recordings;
-  theme();shortcutHint();$('#app-version').textContent=data.version?`v${data.version}`:'';setJobBusy(false);
+  systemLanguage=data.system_language || systemLanguage;applyLanguage();theme();shortcutHint();$('#app-version').textContent=data.version?`v${data.version}`:'';setJobBusy(false);
   if (data.error) message(data.error);
   if(data.document)acceptDocument(data.document);
   else if(recordings.some(r=>r.needs_recovery && !r.recovery_copy))showPage('recordings');
@@ -603,5 +635,5 @@ main().catch(error=>{
   message(String(error));
   if(document.documentElement.classList.contains('overlay'))return;
   setJobBusy(true);
-  content.replaceChildren(node('section',{class:'empty-state'},[node('h1',{text:'Could not start Screen Recorder'}),node('p',{class:'muted',text:'Check the error above, then try again.'}),button('Retry',()=>location.reload(),true)]));
+  content.replaceChildren(node('section',{class:'empty-state'},[node('h1',{text:t('Could not start Screen Recorder')}),node('p',{class:'muted',text:t('Check the error above, then try again.')}),button('Retry',()=>location.reload(),true)]));
 });

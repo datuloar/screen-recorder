@@ -3,9 +3,9 @@
 Record a screen area, cut out the parts you do not need, and export an MP4.
 A Rust desktop app for Windows and macOS, with a Tauri interface and native capture.
 
-[Download the latest release](https://github.com/datuloar/screen-recorder/releases/latest) · [Usage](docs/USAGE.md) · [Build from source](docs/BUILDING.md)
+The interface follows your system's UI language: Russian for Russian locales, English otherwise. Settings also lets you choose Русский or English explicitly, without restarting the app.
 
-![Recording setup in Screen Recorder](docs/screenshots/record.png)
+[Download the latest release](https://github.com/datuloar/screen-recorder/releases/latest) · [Usage](docs/USAGE.md) · [Build from source](docs/BUILDING.md)
 
 ## Record
 
@@ -22,7 +22,7 @@ Drag across the timeline to select a range, then delete it, keep it, preview it 
 
 Crop directly over the video and adjust each audio track's volume. Edits save beside the source video; exporting creates a separate file.
 
-![Video editing in Screen Recorder](docs/screenshots/edit.png)
+Loop a selected range to check a cut, or change preview speed from 0.5× to 2×. The zoomed timeline follows playback. Preview speed does not change the exported video.
 
 ## Install
 

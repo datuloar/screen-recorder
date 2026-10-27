@@ -56,6 +56,7 @@ fn failure(error: impl std::fmt::Display) -> String {
 #[derive(Serialize)]
 struct Bootstrap {
     version: &'static str,
+    system_language: &'static str,
     settings: AppSettings,
     displays: Vec<DisplayInfo>,
     system_devices: Vec<AudioDeviceInfo>,
@@ -182,6 +183,7 @@ async fn bootstrap(state: State<'_, Shared>) -> UiResult<Bootstrap> {
             });
         Ok(Bootstrap {
             version: env!("CARGO_PKG_VERSION"),
+            system_language: crate::language::system_language(),
             settings,
             error,
             document,
@@ -308,18 +310,28 @@ async fn select_area(
         existing.close().map_err(failure)?;
     }
     let query = format!(
-        "index.html?overlay=1&display={display_id}&width={}&height={}&scale={}&x={}&y={}&w={}&h={}",
+        "index.html?overlay=1&display={display_id}&width={}&height={}&scale={}&x={}&y={}&w={}&h={}&language={}",
         display.width,
         display.height,
         display.scale,
         region.map_or(0, |r| r.x),
         region.map_or(0, |r| r.y),
         region.map_or(0, |r| r.width),
-        region.map_or(0, |r| r.height)
+        region.map_or(0, |r| r.height),
+        state
+            .lock()
+            .unwrap()
+            .settings
+            .language
+            .resolve(crate::language::system_language())
     );
     let window =
         tauri::WebviewWindowBuilder::new(&app, "selection", tauri::WebviewUrl::App(query.into()))
-            .title("Select area")
+            .title(crate::language::text(
+                state.lock().unwrap().settings.language,
+                "Select area",
+                "Выбрать область",
+            ))
             .decorations(false)
             .transparent(true)
             .always_on_top(true)
@@ -884,6 +896,8 @@ fn capture_controls_state(state: State<'_, Shared>) -> serde_json::Value {
     serde_json::json!({
         "status": engine.status(),
         "appearance": engine.settings.appearance,
+        "language": engine.settings.language,
+        "system_language": crate::language::system_language(),
         "stop_hotkey": engine.settings.stop_hotkey,
         "pause_hotkey": engine.settings.pause_hotkey,
     })
@@ -914,7 +928,11 @@ fn show_capture_controls(app: &AppHandle) -> UiResult<()> {
             "capture-controls",
             tauri::WebviewUrl::App("capture.html".into()),
         )
-        .title("Recording controls")
+        .title(crate::language::text(
+            app.state::<Shared>().lock().unwrap().settings.language,
+            "Recording controls",
+            "Управление записью",
+        ))
         .inner_size(480.0, 152.0)
         .min_inner_size(360.0, 152.0)
         .always_on_top(true)
@@ -929,6 +947,13 @@ fn show_capture_controls(app: &AppHandle) -> UiResult<()> {
         protect(&window);
         window
     };
+    window
+        .set_title(crate::language::text(
+            app.state::<Shared>().lock().unwrap().settings.language,
+            "Recording controls",
+            "Управление записью",
+        ))
+        .map_err(failure)?;
     app.emit_to("capture-controls", "capture-controls-refresh", ())
         .map_err(failure)?;
     window.show().map_err(failure)?;
