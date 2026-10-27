@@ -107,12 +107,17 @@ function fullRegion(d = selected()) { return { x: 0, y: 0, width: d.width & ~1, 
 function overlayRegion(){const full=fullRegion();return region && Object.keys(full).some(key=>full[key]!==region[key])?region:null;}
 function regionInputs(value, width, height, update) {
   const inputs = [number(value.x, 0, width - 2), number(value.y, 0, height - 2), number(value.width, 2, width, 2), number(value.height, 2, height, 2)];
-  inputs.forEach(input => input.addEventListener('change', () => {
-    if (inputs.some(i => !i.reportValidity())) return;
-    const [x, y, width, height] = inputs.map(i => Number(i.value)); update({ x, y, width, height });
-  }));
+  const pending = new Set();
+  inputs.forEach(input => {
+    input.addEventListener('input',()=>pending.add(input));
+    input.addEventListener('change', () => {
+      if (inputs.some(i => !i.reportValidity())) return;
+      pending.delete(input);
+      const [x, y, width, height] = inputs.map(i => Number(i.value)); update({ x, y, width, height });
+    });
+  });
   return { element: node('div', { class: 'region-fields' }, inputs.map((input, i) => field(['X, px', 'Y, px', 'Width', 'Height'][i], input))),
-    set(rect) { inputs.forEach((input, i) => input.value = [rect.x, rect.y, rect.width, rect.height][i]); }, inputs };
+    set(rect) { inputs.forEach((input, i) => {if(!pending.has(input))input.value = [rect.x, rect.y, rect.width, rect.height][i];}); }, inputs };
 }
 
 function renderHome() {
