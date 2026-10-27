@@ -42,6 +42,7 @@ class ReleaseTests(unittest.TestCase):
     def test_package_includes_user_docs_and_excludes_development_journals(self):
         with repository() as root:
             for name in ("README.md", "LICENSE", "THIRDPARTY-NOTICES.md", "docs/USAGE.md", "docs/BUILDING.md",
+                         "docs/ARCHITECTURE.md", "docs/DESIGN.md", "docs/PERFORMANCE.md", "docs/benchmarks/windows-1080p.json",
                          "docs/STATUS.md", "docs/ui-checks.json", "docs/screenshots/record.png",
                          "vendor/ffmpeg-8.0.tar.xz", "vendor/ffmpeg-configure.txt", "scripts/media-source.json"):
                 path = root / name
@@ -56,6 +57,8 @@ class ReleaseTests(unittest.TestCase):
                 package.common_files(stage, ["x86_64-pc-windows-msvc"])
             self.assertTrue((stage / "docs/USAGE.md").is_file())
             self.assertTrue((stage / "docs/BUILDING.md").is_file())
+            self.assertTrue((stage / "docs/ARCHITECTURE.md").is_file())
+            self.assertTrue((stage / "docs/benchmarks/windows-1080p.json").is_file())
             self.assertTrue((stage / "docs/screenshots/record.png").is_file())
             self.assertFalse((stage / "docs/STATUS.md").exists())
             self.assertFalse((stage / "docs/ui-checks.json").exists())
@@ -208,21 +211,80 @@ class ReleaseTests(unittest.TestCase):
             self.assertFalse(github.release["draft"])
             self.assertEqual(len(github.release["assets"]), 2)
 
+    def test_retry_of_older_release_does_not_replace_latest(self):
+        with repository() as root:
+            self.release_files(root)
+            github = FakeGitHub(published=[{"tag_name": "v0.2.0", "draft": False, "prerelease": False}])
+            release.publish("v0.1.0", github)
+            published = [call[2] for call in github.calls if call[0] == "PATCH" and call[2].get("draft") is False]
+            self.assertEqual(published, [{"draft": False, "make_latest": "false"}])
+
+    def test_newer_stable_release_becomes_latest(self):
+        with repository() as root:
+            self.release_files(root)
+            github = FakeGitHub(published=[{"tag_name": "v0.0.9", "draft": False, "prerelease": False},
+                                           {"tag_name": "v9.0.0", "draft": True, "prerelease": False}])
+            release.publish("v0.1.0", github)
+            published = [call[2] for call in github.calls if call[0] == "PATCH" and call[2].get("draft") is False]
+            self.assertEqual(published, [{"draft": False, "make_latest": "true"}])
+
+    def test_first_published_notes_include_features_from_failed_reserved_tag(self):
+        with repository() as root:
+            release.set_version("0.1.1")
+            release.git("add", "Cargo.toml", "Cargo.lock")
+            release.git("-c", "user.name=Release Test", "-c", "user.email=release-test@example.invalid", "commit", "-m", "fix: repair package build")
+            release.git("tag", "v0.1.1")
+            self.release_files(root, "0.1.1")
+            release.notes("v0.1.1", FakeGitHub())
+            notes = (root / "dist/release-notes.md").read_text()
+            self.assertIn("- record a region", notes)
+            self.assertIn("- repair package build", notes)
+            self.assertNotIn("Previous version:", notes)
+
+    def test_notes_start_after_last_published_ancestor_and_include_reserved_versions(self):
+        with repository() as root:
+            release.git("-c", "user.name=Release Test", "-c", "user.email=release-test@example.invalid", "commit", "--allow-empty", "-m", "feat: add crop handles")
+            release.git("tag", "v0.1.1")
+            release.set_version("0.1.2")
+            release.git("add", "Cargo.toml", "Cargo.lock")
+            release.git("-c", "user.name=Release Test", "-c", "user.email=release-test@example.invalid", "commit", "-m", "fix: repair universal package")
+            release.git("tag", "v0.1.2")
+            self.release_files(root, "0.1.2")
+            github = FakeGitHub(published=[{"tag_name": "v0.1.0", "draft": False, "prerelease": False},
+                                           {"tag_name": "v0.1.1", "draft": True, "prerelease": False}])
+            release.notes("v0.1.2", github)
+            notes = (root / "dist/release-notes.md").read_text()
+            self.assertIn("- add crop handles", notes)
+            self.assertIn("- repair universal package", notes)
+            self.assertNotIn("- record a region", notes)
+            self.assertIn("Previous version: v0.1.0", notes)
+
+    def test_published_version_listing_paginates_and_excludes_drafts_and_prereleases(self):
+        github = FakeGitHub()
+        first = [{"tag_name": f"v0.1.{index}", "draft": True} for index in range(100)]
+        second = [{"tag_name": "v1.0.0", "draft": False}, {"tag_name": "v2.0.0-rc.1", "draft": False, "prerelease": True}]
+        with patch.object(github, "request", side_effect=[first, second]) as requests:
+            self.assertEqual(release.published_versions(github), {"v1.0.0": (1, 0, 0)})
+        self.assertEqual(requests.call_args_list[1].args, ("GET", "/releases?per_page=100&page=2"))
+
     @staticmethod
-    def release_files(root):
-        (root / "dist/ScreenRecorder-0.1.0-windows-x64.zip").write_bytes(b"windows fixture")
-        (root / "dist/ScreenRecorder-0.1.0-macos-universal.dmg").write_bytes(b"macos fixture")
-        (root / "dist/release-notes.md").write_text("Screen Recorder v0.1.0\n")
+    def release_files(root, value="0.1.0"):
+        (root / f"dist/ScreenRecorder-{value}-windows-x64.zip").write_bytes(b"windows fixture")
+        (root / f"dist/ScreenRecorder-{value}-macos-universal.dmg").write_bytes(b"macos fixture")
+        (root / "dist/release-notes.md").write_text(f"Screen Recorder v{value}\n")
 
 
 class FakeGitHub:
-    def __init__(self, corrupt=False):
+    def __init__(self, corrupt=False, published=None):
         self.release = None
         self.corrupt = corrupt
         self.calls = []
+        self.published = published or []
 
     def request(self, method, path, data=None, content_type=None):
         self.calls.append((method, path, copy.deepcopy(data)))
+        if method == "GET" and path.startswith("/releases?"):
+            return copy.deepcopy(self.published + ([self.release] if self.release else []))
         if method == "GET":
             return copy.deepcopy(self.release)
         if method == "POST" and path == "/releases":

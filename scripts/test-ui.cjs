@@ -395,8 +395,9 @@ async function fixture() {
       const box=await page.locator('.selection-box').boundingBox();await page.mouse.move(box.x+30,box.y+30);await page.mouse.down();await page.mouse.move(box.x+50,box.y+40);await page.mouse.up();
       await page.getByText('Exact coordinates',{exact:true}).click();
       for(const [label,value] of [['X, px','100'],['Y, px','100'],['Width','640'],['Height','360']]){await page.getByLabel(label,{exact:true}).fill(value);await page.getByLabel(label,{exact:true}).press('Tab');}
-      await click('Use area');assert.equal((await last('apply_region')).region.width,640);assert.equal((await last('apply_region')).startRecording,false);
-      await page.locator('.selection-box').click({position:{x:40,y:40}});await page.keyboard.press('ArrowRight');await page.keyboard.press('Shift+ArrowDown');await page.keyboard.press('Alt+ArrowRight');await page.keyboard.press('Enter');
+      assert.equal(await page.getByLabel('X, px',{exact:true}).inputValue(),'100');
+      await click('Use area');assert.deepEqual((await last('apply_region')).region,{x:100,y:100,width:640,height:360});assert.equal((await last('apply_region')).startRecording,false);
+      await page.locator('.selection-box').focus();await page.keyboard.press('ArrowRight');await page.keyboard.press('Shift+ArrowDown');await page.keyboard.press('Alt+ArrowRight');await page.keyboard.press('Enter');
       assert.equal((await last('apply_region')).region.x,101);assert.equal((await last('apply_region')).region.y,110);assert.equal((await last('apply_region')).startRecording,true);
       await page.keyboard.press('Escape');await click('Cancel');assert.ok(await page.evaluate(()=>qa.calls.filter(c=>c.command==='cancel_selection').length>=2));
       await shot('selection-overlay');assert.deepEqual(errors,[]);
@@ -477,6 +478,6 @@ async function fixture() {
       assert.match(await page.locator('#footer-hint').innerText(),/Ctrl \+ Shift \+ F9/);
     });
     await fs.writeFile(path.join(output,'results.json'),JSON.stringify({checks,errors,scope:'Headless Chromium frontend with mocked Tauri commands; media decoded from supplied local MP4. Does not test native dialogs or capture.'},null,2));
-  }catch(error){await shot('failure');console.error(await page.evaluate(()=>({calls:qa.calls.slice(-6),notice:document.querySelector('#notice')?.textContent})));throw error;}
+  }catch(error){await shot('failure');console.error(JSON.stringify(await page.evaluate(()=>({calls:qa.calls.slice(-6),notice:document.querySelector('#notice')?.textContent})),null,2));throw error;}
   finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

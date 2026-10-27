@@ -223,8 +223,9 @@ jobs:
           merge-multiple: true
       - name: Prepare changelog and checksums
         env:
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
-        run: python3 scripts/package.py notes --tag "$TAG"
+        run: python3 scripts/release.py notes --tag "$TAG"
       - name: Publish both packages
         env:
           GH_TOKEN: ${{ github.token }}

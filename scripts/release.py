@@ -12,6 +12,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import package
+
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
@@ -114,6 +116,36 @@ class GitHub:
             raise RuntimeError(f"GitHub API {method} failed with HTTP {error.code}") from error
 
 
+def published_versions(github):
+    versions = {}
+    page = 1
+    while True:
+        releases = github.request("GET", f"/releases?per_page=100&page={page}")
+        if not isinstance(releases, list):
+            raise RuntimeError("Could not read published GitHub releases")
+        for release in releases:
+            tag = release.get("tag_name", "")
+            if not release.get("draft") and not release.get("prerelease") and tag.startswith("v") and VERSION.fullmatch(tag[1:]):
+                versions[tag] = version_tuple(tag[1:])
+        if len(releases) < 100:
+            return versions
+        page += 1
+
+
+def notes(tag, github):
+    current = version_tuple(tag.removeprefix("v"))
+    candidates = sorted(((version, name) for name, version in published_versions(github).items() if version < current), reverse=True)
+    previous = None
+    for _, name in candidates:
+        result = subprocess.run(["git", "merge-base", "--is-ancestor", name, tag], cwd=ROOT, capture_output=True)
+        if result.returncode == 0:
+            previous = name
+            break
+        if result.returncode != 1:
+            raise RuntimeError(f"Cannot resolve published release tag {name}")
+    package.notes(tag, previous)
+
+
 def publish(tag, github):
     value = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["workspace"]["package"]["version"]
     if tag != f"v{value}":
@@ -148,7 +180,9 @@ def publish(tag, github):
     release = github.request("GET", f"/releases/{release['id']}")
     if {asset["name"] for asset in release["assets"]} != set(names):
         raise RuntimeError("Release asset set is incomplete. Release remains a draft.")
-    result = github.request("PATCH", f"/releases/{release['id']}", {"draft": False, "make_latest": "true"})
+    versions = published_versions(github)
+    latest = not versions or version_tuple(value) > max(versions.values())
+    result = github.request("PATCH", f"/releases/{release['id']}", {"draft": False, "make_latest": "true" if latest else "false"})
     print(f"Published: {result['html_url']}")
 
 
@@ -160,6 +194,8 @@ if __name__ == "__main__":
     plan.add_argument("--push", action="store_true")
     release = commands.add_parser("publish")
     release.add_argument("--tag", required=True)
+    changelog = commands.add_parser("notes")
+    changelog.add_argument("--tag", required=True)
     arguments = parser.parse_args()
     if arguments.action == "prepare":
         tag = prepare(arguments.source, arguments.push)
@@ -168,4 +204,8 @@ if __name__ == "__main__":
             with open(output, "a", encoding="utf-8") as stream:
                 stream.write(f"tag={tag}\n")
     else:
-        publish(arguments.tag, GitHub(os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"]))
+        github = GitHub(os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"])
+        if arguments.action == "notes":
+            notes(arguments.tag, github)
+        else:
+            publish(arguments.tag, github)

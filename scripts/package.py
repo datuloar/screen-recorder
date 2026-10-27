@@ -150,11 +150,10 @@ def macos():
     print(contents.parent)
 
 
-def notes(tag):
+def notes(tag, previous=None):
     if tag != f"v{version()}":
         raise RuntimeError(f"Tag {tag} does not match Cargo version {version()}")
-    previous = subprocess.run(["git", "describe", "--tags", "--abbrev=0", f"{tag}^"], capture_output=True, text=True)
-    rev = f"{previous.stdout.strip()}..{tag}" if previous.returncode == 0 else tag
+    rev = f"{previous}..{tag}" if previous else tag
     log = subprocess.check_output(["git", "log", "--format=%s", rev], text=True)
     groups = {"Added": [], "Fixed": [], "Changed": []}
     for subject in log.splitlines():
@@ -182,8 +181,8 @@ def notes(tag):
     for title, subjects in groups.items():
         if subjects:
             output.extend(["", f"### {title}", ""] + [f"- {s}" for s in subjects])
-    if previous.returncode == 0:
-        output.extend(["", f"Previous version: {previous.stdout.strip()}"])
+    if previous:
+        output.extend(["", f"Previous version: {previous}"])
     output.extend(["", "Packages are unsigned. The macOS app is ad-hoc signed and is not notarized."])
     (ROOT / "dist/release-notes.md").write_text("\n".join(output) + "\n", encoding="utf-8")
 
@@ -192,8 +191,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=["windows", "macos", "notes", "check-version"])
     parser.add_argument("--tag")
+    parser.add_argument("--previous", help="Previous published release tag; omit for the first release")
     args = parser.parse_args()
     if args.action == "windows": windows()
     elif args.action == "macos": macos()
-    elif args.action == "notes": notes(args.tag)
+    elif args.action == "notes": notes(args.tag, args.previous)
     elif args.tag != f"v{version()}": raise SystemExit("Tag must match workspace.package.version")
