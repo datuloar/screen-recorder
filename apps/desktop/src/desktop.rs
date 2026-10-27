@@ -35,6 +35,7 @@ struct Engine {
     session: Option<RecordingSession>,
     phase: String,
     error: Option<String>,
+    shell_warning: Option<String>,
     last_source: Option<PathBuf>,
     document: Option<EditorDocument>,
     export_cancel: Option<Arc<AtomicBool>>,
@@ -125,6 +126,7 @@ impl Engine {
             session: None,
             phase: "idle".into(),
             error,
+            shell_warning: None,
             last_source,
             document: None,
             export_cancel: None,
@@ -141,7 +143,7 @@ impl Engine {
     fn status(&self) -> CaptureStatus {
         let mut status = CaptureStatus {
             phase: self.phase.clone(),
-            error: self.error.clone(),
+            error: self.error.clone().or_else(|| self.shell_warning.clone()),
             ..Default::default()
         };
         if let Some(session) = &self.session {
@@ -168,7 +170,10 @@ async fn bootstrap(state: State<'_, Shared>) -> UiResult<Bootstrap> {
         let engine = state.lock().unwrap();
         (
             engine.settings.clone(),
-            engine.error.clone(),
+            engine
+                .error
+                .clone()
+                .or_else(|| engine.shell_warning.clone()),
             engine.document.clone(),
             engine.pending_open.is_some(),
         )
@@ -235,26 +240,77 @@ async fn save_settings(
         engine.phase = "configuring".into();
         (engine.settings.clone(), engine.settings_path.clone())
     };
-    let result = async {
+    let mut login_rollback = None;
+    let mut result = async {
+        let login = crate::startup::LoginItem::new().map_err(failure)?;
+        let snapshot = login.snapshot().map_err(failure)?;
+        let status = login.status().map_err(failure)?;
         rebind(&app, settings.clone()).await?;
-        if settings.autostart != old.autostart {
-            set_autostart(settings.autostart).map_err(failure)?;
+        if status.registered != settings.autostart
+            || (settings.autostart && !status.current_executable)
+        {
+            login
+                .set(settings.autostart)
+                .map_err(|error| format!("Could not change launch-at-login setting: {error}"))?;
+            login_rollback = Some((login, snapshot));
         }
         recorder_core::save_json(&path, &settings)
     }
     .await;
     if result.is_err() {
-        if settings.autostart != old.autostart {
-            let _ = set_autostart(old.autostart);
+        if let Some((login, snapshot)) = login_rollback
+            && let Err(error) = login.restore(&snapshot)
+        {
+            result = Err(format!(
+                "{}\nCould not restore the previous launch-at-login setting: {error}",
+                result.as_ref().unwrap_err()
+            ));
         }
-        let _ = rebind(&app, old).await;
+        if let Err(error) = rebind(&app, old).await {
+            result = Err(format!(
+                "{}\nCould not restore the previous shortcuts: {error}",
+                result.as_ref().unwrap_err()
+            ));
+        }
     }
     let mut engine = state.lock().unwrap();
     engine.phase = "idle".into();
     if result.is_ok() {
         engine.settings = settings;
+        engine.shell_warning = None;
     }
     result
+}
+
+#[tauri::command]
+async fn login_status() -> UiResult<crate::startup::LoginStatus> {
+    tauri::async_runtime::spawn_blocking(|| crate::startup::LoginItem::new()?.status())
+        .await
+        .map_err(failure)?
+        .map_err(|error| format!("Could not read launch-at-login setting: {error}"))
+}
+
+#[tauri::command]
+fn show_main_window(app: AppHandle) {
+    show_main(&app);
+}
+
+#[tauri::command]
+fn hide_main(app: AppHandle, state: State<'_, Shared>) -> UiResult<()> {
+    if !SHELL.with(|shell| shell.borrow().is_some()) {
+        return Err("The tray is unavailable. Keep this window open or use Quit to exit.".into());
+    }
+    let recording = matches!(
+        state.lock().unwrap().phase.as_str(),
+        "recording" | "paused" | "preparing"
+    );
+    if recording {
+        return show_capture_controls(&app);
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        window.hide().map_err(failure)?;
+    }
+    Ok(())
 }
 
 async fn rebind(app: &AppHandle, settings: AppSettings) -> UiResult<()> {
@@ -267,7 +323,13 @@ async fn rebind(app: &AppHandle, settings: AppSettings) -> UiResult<()> {
                 if let Some(shell) = shell.as_mut() {
                     shell.rebind(&keys)
                 } else {
-                    Shell::new(&keys).map(|value| *shell = Some(value))
+                    let value = Shell::new(&keys)?;
+                    let warning = value.warning().map(str::to_owned);
+                    *shell = Some(value);
+                    if let Some(warning) = warning {
+                        anyhow::bail!(warning);
+                    }
+                    Ok(())
                 }
             })
             .map_err(failure);
@@ -912,7 +974,7 @@ fn expand_capture(app: AppHandle) {
 async fn compact_capture(app: AppHandle, state: State<'_, Shared>) -> UiResult<()> {
     if !matches!(
         state.lock().unwrap().phase.as_str(),
-        "preparing" | "recording" | "saving"
+        "preparing" | "recording" | "paused" | "saving"
     ) {
         return Err("Compact controls are available while recording".into());
     }
@@ -967,62 +1029,6 @@ fn protect(window: &tauri::WebviewWindow) {
     if std::env::var_os("SCREEN_RECORDER_UI_TEST").is_none() {
         let _ = window.set_content_protected(true);
     }
-}
-
-fn set_autostart(enabled: bool) -> anyhow::Result<()> {
-    let executable = std::env::current_exe()?;
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        let mut command = std::process::Command::new("reg.exe");
-        command.creation_flags(0x08000000);
-        command.args([
-            if enabled { "add" } else { "delete" },
-            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
-            "/v",
-            "ScreenRecorder",
-        ]);
-        if enabled {
-            command.args([
-                "/t",
-                "REG_SZ",
-                "/d",
-                &format!("\"{}\" --background", executable.display()),
-            ]);
-        }
-        let result = command.arg("/f").output()?;
-        anyhow::ensure!(
-            result.status.success(),
-            "Could not change launch-at-login setting: {}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let folder = directories::BaseDirs::new()
-            .ok_or_else(|| anyhow::anyhow!("Home directory not found"))?
-            .home_dir()
-            .join("Library/LaunchAgents");
-        let path = folder.join("dev.screenrecorder.desktop.plist");
-        if enabled {
-            std::fs::create_dir_all(folder)?;
-            let executable = executable
-                .to_string_lossy()
-                .replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;")
-                .replace('"', "&quot;");
-            std::fs::write(
-                path,
-                format!(
-                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>Label</key><string>dev.screenrecorder.desktop</string><key>ProgramArguments</key><array><string>{executable}</string><string>--background</string></array><key>RunAtLoad</key><true/></dict></plist>"
-                ),
-            )?;
-        } else if path.exists() {
-            std::fs::remove_file(path)?;
-        }
-    }
-    Ok(())
 }
 
 fn background(app: AppHandle) {
@@ -1147,6 +1153,9 @@ pub fn run() -> anyhow::Result<()> {
             bootstrap,
             capture_status,
             save_settings,
+            login_status,
+            show_main_window,
+            hide_main,
             capture_shortcut,
             choose_folder,
             select_area,
@@ -1185,20 +1194,32 @@ pub fn run() -> anyhow::Result<()> {
             let shared = app.state::<Shared>();
             let mut engine = shared.lock().unwrap();
             match Shell::new(&engine.settings) {
-                Ok(shell) => SHELL.with(|value| *value.borrow_mut() = Some(shell)),
-                Err(e) => engine.error = Some(format!("Tray or keyboard shortcut: {e}")),
+                Ok(shell) => {
+                    if let Some(warning) = shell.warning() {
+                        engine.shell_warning =
+                            Some(format!("Tray or keyboard shortcut: {warning}"));
+                    }
+                    SHELL.with(|value| *value.borrow_mut() = Some(shell));
+                }
+                Err(e) => engine.shell_warning = Some(format!("Tray or keyboard shortcut: {e}")),
             }
             let shell_ok = SHELL.with(|s| s.borrow().is_some());
             let background_requested = std::env::args().any(|a| a == "--background");
-            let visible = engine.first_run
-                || !engine.settings.start_in_tray
+            let needs_attention = engine.first_run
+                || engine.error.is_some()
+                || engine.shell_warning.is_some()
                 || !shell_ok
                 || engine.pending_recovery
                 || engine.document.is_some();
+            let visible = crate::startup::show_on_launch(
+                background_requested,
+                engine.settings.start_in_tray,
+                needs_attention,
+            );
             drop(engine);
             if let Some(main) = app.get_webview_window("main") {
                 protect(&main);
-                if !shell_ok || (visible && !background_requested) {
+                if visible {
                     main.show()?;
                 }
             }
@@ -1272,7 +1293,7 @@ pub fn run() -> anyhow::Result<()> {
                 && window.label() == "main"
             {
                 api.prevent_close();
-                let _ = window.hide();
+                let _ = window.emit("close-request", ());
             }
         })
         .run(tauri::generate_context!())

@@ -21,5 +21,15 @@ open = "5"
 global-hotkey = "=0.9.0"
 tray-icon = { version = "=0.26.1", default-features = false }
 
+[target.'cfg(windows)'.dependencies]
+winreg = "=0.56.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = "=1.10.3"
+tempfile = "3"
+
+[dev-dependencies]
+tempfile = "3"
+
 [build-dependencies]
 tauri-build = "2"

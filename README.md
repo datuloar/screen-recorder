@@ -14,6 +14,7 @@ Press **Ctrl+Shift+F9**, drag to select an area, then press **Enter**. Recording
 - Record at 15, 24, 30 or 60 FPS, with adjustable bitrate and cursor capture.
 - Capture system audio and microphone to separate tracks.
 - Change global shortcuts by pressing the keys you want to use.
+- Enable launch at login in Settings and keep the app available from the tray.
 - Browse recent recordings and recover complete fragments after an interrupted session.
 
 ## Edit

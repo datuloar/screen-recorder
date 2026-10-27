@@ -3,6 +3,7 @@
 mod desktop;
 mod language;
 mod shell;
+mod startup;
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args().collect();

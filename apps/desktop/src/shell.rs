@@ -19,8 +19,9 @@ pub enum ShellEvent {
 
 pub struct Shell {
     _tray: TrayIcon,
-    manager: GlobalHotKeyManager,
-    keys: [HotKey; 3],
+    manager: Option<GlobalHotKeyManager>,
+    keys: Option<[HotKey; 3]>,
+    warning: Option<String>,
     labels: [(MenuItem, &'static str, &'static str); 8],
 }
 
@@ -106,19 +107,38 @@ impl Shell {
         }
         let tray = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
+            .with_menu_on_left_click(!cfg!(windows))
             .with_tooltip("Screen Recorder")
             .with_icon(Icon::from_rgba(rgba, 32, 32)?)
             .build()?;
-        let manager = GlobalHotKeyManager::new()?;
-        let keys = Self::parse_keys(settings)?;
-        manager.register_all(&keys)?;
-        Self::listen(keys);
-        Ok(Self {
+        #[cfg(windows)]
+        tray_icon::TrayIconEvent::set_event_handler(Some(|event| {
+            if matches!(
+                event,
+                tray_icon::TrayIconEvent::Click {
+                    button: tray_icon::MouseButton::Left,
+                    button_state: tray_icon::MouseButtonState::Up,
+                    ..
+                }
+            ) {
+                let _ = events().send(ShellEvent::Show);
+            }
+        }));
+        let mut shell = Self {
             _tray: tray,
-            manager,
-            keys,
+            manager: None,
+            keys: None,
+            warning: None,
             labels,
-        })
+        };
+        if let Err(error) = shell.rebind(settings) {
+            shell.warning = Some(error.to_string());
+        }
+        Ok(shell)
+    }
+
+    pub fn warning(&self) -> Option<&str> {
+        self.warning.as_deref()
     }
 
     fn parse_keys(settings: &recorder_core::AppSettings) -> anyhow::Result<[HotKey; 3]> {
@@ -136,19 +156,24 @@ impl Shell {
 
     pub fn rebind(&mut self, settings: &recorder_core::AppSettings) -> anyhow::Result<()> {
         let keys = Self::parse_keys(settings)?;
-        if keys == self.keys {
+        if Some(keys) == self.keys {
             self.set_language(settings.language);
             return Ok(());
         }
-        self.manager.unregister_all(&self.keys)?;
-        if let Err(error) = self.manager.register_all(&keys) {
-            let _ = self.manager.unregister_all(&keys);
-            self.manager.register_all(&self.keys)?;
-            anyhow::bail!(
-                "Could not assign shortcut. Another app may be using it. Previous shortcuts restored. {error}"
-            );
+        if self.manager.is_none() {
+            self.manager = Some(GlobalHotKeyManager::new()?);
         }
-        self.keys = keys;
+        let manager = self.manager.as_ref().unwrap();
+        if let Err(error) = replace_keys(
+            &mut self.keys,
+            keys,
+            |keys| manager.register_all(keys).map_err(Into::into),
+            |keys| manager.unregister_all(keys).map_err(Into::into),
+        ) {
+            self.warning = Some(error.to_string());
+            return Err(error);
+        }
+        self.warning = None;
         Self::listen(keys);
         self.set_language(settings.language);
         Ok(())
@@ -186,9 +211,137 @@ impl Shell {
     }
 }
 
+fn replace_keys(
+    current: &mut Option<[HotKey; 3]>,
+    next: [HotKey; 3],
+    mut register: impl FnMut(&[HotKey; 3]) -> anyhow::Result<()>,
+    mut unregister: impl FnMut(&[HotKey; 3]) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let previous = current.take();
+    if let Some(previous) = previous
+        && let Err(error) = unregister(&previous)
+    {
+        let _ = unregister(&previous);
+        return Err(error);
+    }
+    if let Err(error) = register(&next) {
+        let _ = unregister(&next);
+        if let Some(previous) = previous {
+            if let Err(restore_error) = register(&previous) {
+                let _ = unregister(&previous);
+                anyhow::bail!("Could not restore the previous shortcuts: {restore_error}");
+            }
+            *current = Some(previous);
+            anyhow::bail!(
+                "Could not assign shortcut. Another app may be using it. Previous shortcuts restored. {error}"
+            );
+        }
+        anyhow::bail!("Could not assign shortcut. Another app may be using it. {error}");
+    }
+    *current = Some(next);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_keys() -> ([HotKey; 3], [HotKey; 3]) {
+        let previous = Shell::parse_keys(&Default::default()).unwrap();
+        let next = Shell::parse_keys(&recorder_core::AppSettings {
+            hotkey: "Control+F8".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        (previous, next)
+    }
+
+    #[test]
+    fn conflicting_new_shortcuts_restore_the_full_previous_set() {
+        let (previous, next) = sample_keys();
+        let mut current = Some(previous);
+        let mut calls = Vec::new();
+        let mut removed = Vec::new();
+        let result = replace_keys(
+            &mut current,
+            next,
+            |keys| {
+                calls.push(*keys);
+                if *keys == next {
+                    anyhow::bail!("occupied");
+                }
+                Ok(())
+            },
+            |keys| {
+                removed.push(*keys);
+                Ok(())
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(current, Some(previous));
+        assert_eq!(calls, vec![next, previous]);
+        assert_eq!(removed, vec![previous, next]);
+    }
+
+    #[test]
+    fn failed_restore_leaves_no_registered_set_and_a_later_retry_can_recover() {
+        let (previous, next) = sample_keys();
+        let mut current = Some(previous);
+        let mut removed = Vec::new();
+        let result = replace_keys(
+            &mut current,
+            next,
+            |_| anyhow::bail!("occupied"),
+            |keys| {
+                removed.push(*keys);
+                Ok(())
+            },
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Could not restore")
+        );
+        assert_eq!(current, None);
+        assert_eq!(removed, vec![previous, next, previous]);
+        let mut attempts = 0;
+        replace_keys(
+            &mut current,
+            previous,
+            |_| {
+                attempts += 1;
+                Ok(())
+            },
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(attempts, 1);
+        assert_eq!(current, Some(previous));
+    }
+
+    #[test]
+    fn startup_conflict_cleans_partial_registration_and_can_be_retried() {
+        let (_, next) = sample_keys();
+        let mut current = None;
+        let mut removed = Vec::new();
+        assert!(
+            replace_keys(
+                &mut current,
+                next,
+                |_| anyhow::bail!("occupied"),
+                |keys| {
+                    removed.push(*keys);
+                    Ok(())
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(current, None);
+        assert_eq!(removed, vec![next]);
+        replace_keys(&mut current, next, |_| Ok(()), |_| Ok(())).unwrap();
+        assert_eq!(current, Some(next));
+    }
 
     #[test]
     fn aliases_cannot_bind_two_actions_to_the_same_key() {

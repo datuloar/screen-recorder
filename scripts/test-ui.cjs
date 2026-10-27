@@ -23,12 +23,13 @@ async function fixture() {
       switch(command){
         case 'bootstrap': return {version:'0.1.0',system_language:qa.systemLanguage,settings,displays:[{id:1,name:'Display 1',width:1920,height:1080},{id:2,name:'Display 2',width:1080,height:1920}],system_devices:[{id:'',name:'Default device'},{id:'speakers',name:'Speakers'}],microphone_devices:[{id:'',name:'Default device'},{id:'mic',name:'Microphone USB'}],recordings:[]};
         case 'capture_status': return qa.status;
+        case 'login_status': if(qa.holdLogin)await new Promise(resolve=>qa.releaseLogin=resolve);return qa.loginStatus || {registered:settings.autostart,current_executable:settings.autostart};
         case 'capture_controls_state': {
           const state={status:structuredClone(qa.status),appearance:settings.appearance,language:settings.language,system_language:qa.systemLanguage,stop_hotkey:settings.stop_hotkey,pause_hotkey:settings.pause_hotkey};
           if(qa.holdControls)await new Promise(resolve=>qa.releaseControls=resolve);
           return state;
         }
-        case 'save_settings': Object.assign(settings,args.settings);return;
+        case 'save_settings': if(qa.holdSettings)await new Promise(resolve=>qa.releaseSettings=resolve);Object.assign(settings,args.settings);return;
         case 'save_project': if(qa.holdSave)await new Promise(resolve=>qa.releaseSave=resolve);return;
         case 'apply_region': if(qa.holdRegion)await new Promise(resolve=>qa.releaseRegion=resolve);return;
         case 'choose_folder': return 'C:/UI-test/chosen';
@@ -551,8 +552,12 @@ async function fixture() {
       assert.match(await page.getByLabel('Экран',{exact:true}).innerText(),/Экран 1/);
       await click('Настроить');assert.equal(await page.getByLabel('Язык',{exact:true}).inputValue(),'System');
       await page.getByLabel('Частота кадров',{exact:true}).selectOption('60');await page.getByLabel('Язык',{exact:true}).selectOption('English');
-      await click('Сохранить настройки');await page.getByText('Settings saved',{exact:true}).waitFor();
+      await page.evaluate(()=>qa.holdSettings=true);await click('Сохранить настройки');await page.waitForFunction(()=>!!qa.releaseSettings);
+      assert.equal(await page.getByLabel('Язык',{exact:true}).isDisabled(),true);
+      assert.equal(await page.locator('#home-nav').isDisabled(),true);assert.equal(await page.evaluate(()=>qa.settings.language),'System');
+      await page.evaluate(()=>{qa.holdSettings=false;qa.releaseSettings();});await page.getByText('Settings saved',{exact:true}).waitFor();
       assert.equal(await page.locator('html').getAttribute('lang'),'en');assert.equal(await page.getByLabel('Frame rate',{exact:true}).inputValue(),'60');
+      await page.getByText('Not registered for launch at login.',{exact:true}).waitFor();
       assert.equal(await page.evaluate(()=>document.activeElement.textContent),'Save settings');
       assert.equal((await last('save_settings')).settings.language,'English');
       await page.getByLabel('Language',{exact:true}).selectOption('Russian');await page.evaluate(()=>qa.fail='save_settings');await click('Save settings');
@@ -597,6 +602,43 @@ async function fixture() {
       await page.getByRole('button',{name:'Записать область',exact:true}).waitFor();
       await page.getByText('Точные координаты',{exact:true}).click();assert.equal(await page.getByLabel('Ширина',{exact:true}).inputValue(),'640');
       await click('Записать область');assert.equal((await last('apply_region')).startRecording,true);await noOverflow();assert.deepEqual(errors,[]);
+    });
+    await check('login status reads system registration, handles moved copies, read errors and retry',async()=>{
+      await page.goto('http://screen-recorder.test/');await page.getByRole('heading',{name:'Record your screen',exact:true}).waitFor();
+      await page.evaluate(()=>{qa.settings.autostart=true;qa.loginStatus={registered:false,current_executable:false};qa.holdLogin=true;});
+      await click('Settings');await page.getByText('Checking launch-at-login registration…',{exact:true}).waitFor();
+      assert.equal(await page.getByLabel('Launch at login',{exact:true}).isDisabled(),true);
+      assert.equal(await page.getByRole('button',{name:'Save settings',exact:true}).isDisabled(),true);
+      await page.evaluate(()=>{qa.holdLogin=false;qa.releaseLogin();});
+      await page.getByText('Not registered for launch at login.',{exact:true}).waitFor();
+      assert.equal(await page.getByLabel('Launch at login',{exact:true}).isChecked(),false);
+      await page.evaluate(()=>qa.loginStatus={registered:true,current_executable:false});await click('Refresh login status');
+      await page.getByText('The login entry points to another copy. Save settings to use this app.',{exact:true}).waitFor();
+      assert.equal(await page.getByLabel('Launch at login',{exact:true}).isChecked(),true);await click('Save settings');
+      await page.getByText('Registered for launch at login.',{exact:true}).waitFor();assert.equal((await last('save_settings')).settings.autostart,true);
+      await page.evaluate(()=>qa.fail='login_status');await click('Refresh login status');await page.waitForFunction(()=>document.querySelector('#login-status').textContent.includes('Test:'));
+      assert.equal(await page.getByLabel('Launch at login',{exact:true}).isDisabled(),false);
+      await page.evaluate(()=>qa.loginStatus={registered:false,current_executable:false});await click('Refresh login status');await page.getByText('Not registered for launch at login.',{exact:true}).waitFor();
+    });
+    await check('closing to tray pauses preview, flushes edits once and preserves failed edits for retry',async()=>{
+      await click('Open video');await page.waitForFunction(()=>document.querySelector('video')?.readyState>=2);
+      await selectRange(.5,1.5);await page.evaluate(()=>qa.holdSave=true);await click('Delete selection');await click('Play');await page.getByRole('button',{name:'Pause',exact:true}).waitFor();
+      const before=await page.evaluate(()=>qa.calls.filter(c=>c.command==='hide_main').length);
+      await page.evaluate(()=>{qa.emit('close-request');qa.emit('close-request');});await page.waitForFunction(()=>!!qa.releaseSave);
+      assert.equal(await page.locator('video').evaluate(v=>v.paused),true);
+      assert.equal(await page.evaluate(()=>qa.calls.filter(c=>c.command==='hide_main').length),before);
+      await page.evaluate(()=>{qa.holdSave=false;qa.releaseSave();});await page.waitForFunction(before=>qa.calls.filter(c=>c.command==='hide_main').length===before+1,before);
+      await selectRange(.3,.6,3);
+      await page.evaluate(()=>{qa.fail='save_project';[...document.querySelectorAll('button')].find(b=>b.textContent==='Delete selection').click();qa.emit('close-request');});
+      await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('Test:'));
+      assert.equal(await page.evaluate(()=>qa.calls.filter(c=>c.command==='hide_main').length),before+1);
+      await page.evaluate(()=>qa.emit('close-request'));await page.waitForFunction(before=>qa.calls.filter(c=>c.command==='hide_main').length===before+2,before);
+    });
+    await check('tray Quit reveals a failed exit and a missing tray never discards the open editor',async()=>{
+      await page.evaluate(()=>{qa.fail='quit';qa.emit('quit-request');});await page.waitForFunction(()=>qa.calls.some(c=>c.command==='show_main_window'));
+      assert.equal(await page.locator('video').evaluate(v=>v.paused),true);
+      await page.evaluate(()=>{qa.fail='hide_main';qa.emit('close-request');});await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('Test:'));
+      assert.equal(await page.getByRole('button',{name:'Export MP4',exact:true}).isEnabled(),true);assert.deepEqual(errors,[]);
     });
     await fs.writeFile(path.join(output,'results.json'),JSON.stringify({checks,errors,scope:'Headless Chromium frontend with mocked Tauri commands; media decoded from supplied local MP4. Does not test native dialogs or capture.'},null,2));
   }catch(error){await shot('failure');console.error(JSON.stringify(await page.evaluate(()=>({calls:qa.calls.slice(-6),notice:document.querySelector('#notice')?.textContent})),null,2));throw error;}

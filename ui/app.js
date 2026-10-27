@@ -12,6 +12,7 @@ const notice = $('#notice');
 let settings, displays = [], systemDevices = [], micDevices = [], region, selectedDisplay, page = 'home', editor;
 let phase = 'idle', countdown, countTimer, lastStatus, starting = false, cancelCountdown;
 let recordings = [], jobBusy=false;
+let closingWindow=false;
 let systemLanguage=navigator.language;
 configureLanguage(new URLSearchParams(location.search).get('language') || 'System');
 translateShell();
@@ -43,6 +44,20 @@ async function safely(action) { try { await action(); } catch (e) { message(Stri
 function theme() { document.documentElement.dataset.theme = settings.appearance.toLowerCase(); }
 function shortcutHint() { $('#footer-hint').textContent = t('Select area: {select} · stop: {stop}',{select:shortcutLabel(settings.hotkey),stop:shortcutLabel(settings.stop_hotkey)}); }
 function applyLanguage(){configureLanguage(settings.language,systemLanguage);translateShell();}
+async function quitApp(){
+  try{requireIdle();setJobBusy(true);editor?.pause();await editor?.flush();await invoke('quit');}
+  catch(error){await invoke('show_main_window').catch(()=>{});throw error;}
+  finally{setJobBusy(false);}
+}
+async function closeToTray(){
+  if(closingWindow)return;
+  closingWindow=true;
+  try{
+    if(jobBusy && page==='settings')throw Error(t('Wait for the current operation to finish'));
+    cancelCountdown?.();editor?.cropEditor?.close();editor?.pause();
+    await editor?.flush();await invoke('hide_main');
+  }finally{closingWindow=false;}
+}
 function displayLabel(display){const number=/^Display (\d+)$/.exec(display.name)?.[1];return number?t('Display {number}',{number}):display.name;}
 function audioLabel(track){return track?.id.startsWith('embedded:')?t('Video audio {number}',{number:track.stream+1}):t(track?.label || 'Track unavailable');}
 function activeNav() { for (const id of ['home', 'settings','recordings']) { const n = $(`#${id}-nav`); if (page === id) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current'); } }
@@ -233,10 +248,25 @@ function updateStatus(status) {
   for (const role of ['system', 'microphone']) if ($(`#${role}-meter`)) $(`#${role}-meter`).value = status[`${role}_level`] ?? 0;
 }
 
-function renderSettings() {
+function renderSettings(focusSave=false) {
   const draft = clone(settings);
   const form = node('form', { class: 'settings-form' });
-  form.addEventListener('submit', e => { e.preventDefault(); safely(async () => { if (!form.reportValidity()) return; const submit=form.querySelector('[type=submit]');submit.disabled=true;try{await invoke('save_settings', { settings: draft }); const previous=locale();settings = draft; applyLanguage();theme(); shortcutHint();if(previous!==locale()){renderSettings();content.querySelector('[type=submit]').focus();}message('Settings saved', true);}finally{submit.disabled=false;} }); });
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    safely(async () => {
+      if(checking || jobBusy || !form.reportValidity())return;
+      const submitted=clone(draft),submit=form.querySelector('[type=submit]'),sections=[...form.querySelectorAll('fieldset')];
+      submit.disabled=true;sections.forEach(section=>section.disabled=true);setJobBusy(true);
+      try{
+        await invoke('save_settings',{settings:submitted});
+        lastStatus=await invoke('capture_status').catch(()=>lastStatus);
+        const previous=locale();settings=submitted;applyLanguage();theme();shortcutHint();
+        if(previous!==locale())renderSettings(true);
+        else form.querySelector('#login-status').textContent=t(submitted.autostart?'Registered for launch at login.':'Not registered for launch at login.');
+        message('Settings saved',true);
+      }finally{submit.disabled=false;sections.forEach(section=>section.disabled=false);setJobBusy(false);}
+    });
+  });
   function valueField(label, key, input) { input.addEventListener('change', () => draft[key] = input.type === 'number' ? Number(input.value) : input.value); return field(label, input); }
   const basics = node('fieldset', {}, [node('legend', { text: t('Video') }),
     field('Frame rate', select([15, 24, 30, 60].map(n => [n, `${n} FPS`]), draft.fps, value => draft.fps = Number(value))),
@@ -267,12 +297,34 @@ function renderSettings() {
     check('Open editor after recording', draft.open_editor, v => draft.open_editor = v),
     check('Start minimized to tray', draft.start_in_tray, v => draft.start_in_tray = v),
     check('Launch at login', draft.autostart, v => draft.autostart = v),
+    node('p',{class:'muted',text:t('Launches quietly after you sign in. Your system can also disable startup apps.')}),
+    node('p',{id:'login-status',class:'muted',role:'status',text:t('Checking launch-at-login registration…')}),
+    button('Refresh login status',()=>refreshLoginStatus()),
+    node('p',{class:'muted',text:t('Closing the window keeps Screen Recorder in the tray. Use Quit to exit.')}),
     node('p', { class: 'path', id: 'output-path', text: draft.output_dir }),
     button('Recording folder', async () => { const value = await invoke('choose_folder'); if (value) { draft.output_dir = value; $('#output-path').textContent = value; } })]);
   for(const section of [basics,audio,keys,app])section.classList.add('settings-section');
   form.append(node('div',{class:'page-heading'},node('div',{},[node('h1', { text: t('Settings') }),node('p',{class:'muted',text:t('Video, audio and keyboard shortcuts.')})])), node('div', { class: 'grid' }, [node('div', {}, [basics, audio]), node('div', {}, [keys, app])]), node('div',{class:'settings-save'},node('button', { type: 'submit', class: 'primary', text: t('Save settings') })));
   form.querySelectorAll('button:not([type])').forEach(b => b.type = 'button');
   content.replaceChildren(form);
+  const loginInput=[...app.querySelectorAll('label')].find(label=>label.textContent===t('Launch at login'))?.querySelector('input');
+  const submit=form.querySelector('[type=submit]');
+  let checking=false;
+  async function refreshLoginStatus(initial=false){
+    if(checking || (jobBusy && !initial))return;
+    checking=true;if(loginInput)loginInput.disabled=true;submit.disabled=true;
+    try{
+      const status=await invoke('login_status');
+      if(!form.isConnected)return;
+      draft.autostart=!!status.registered;if(loginInput)loginInput.checked=draft.autostart;
+      form.querySelector('#login-status').textContent=t(!status.registered?'Not registered for launch at login.':status.current_executable?'Registered for launch at login.':'The login entry points to another copy. Save settings to use this app.');
+    }catch(error){if(form.isConnected)form.querySelector('#login-status').textContent=errorText(error);}
+    finally{
+      checking=false;if(loginInput)loginInput.disabled=jobBusy;submit.disabled=jobBusy;
+      if(focusSave && form.isConnected && !submit.disabled){submit.focus();focusSave=false;}
+    }
+  }
+  refreshLoginStatus(true);
 }
 
 class Editor {
@@ -594,7 +646,8 @@ async function main() {
   $('#settings-nav').onclick = () => safely(() => navigate('settings'));
   $('#recordings-nav').onclick = () => safely(refreshRecordings);
   $('#open-nav').onclick = () => safely(() => openVideo());
-  $('#quit').onclick = () => safely(async () => { await editor?.flush(); await invoke('quit'); });
+  $('#quit').onclick = () => safely(quitApp);
+  await listen('close-request',()=>safely(closeToTray));
   await listen('capture-status', e => updateStatus(e.payload));
   await listen('recording-finished', e => safely(async () => { phase = 'idle';lastStatus={phase:'idle',elapsed_ms:0}; if (e.payload.error) {message(e.payload.error);showPage('home');} else if (e.payload.open_editor) await openVideo(true); else { message('Recording saved', true); showPage('home'); } }));
   await listen('region-selected', e => safely(async()=>{requireIdle();region=e.payload.region;selectedDisplay=e.payload.display_id;showPage('home');if(e.payload.start_recording)await begin();}));
@@ -602,7 +655,7 @@ async function main() {
   await listen('navigate', e => safely(() => navigate(e.payload)));
   await listen('open-last', () => safely(() => openVideo(true)));
   await listen('external-open-request', () => safely(openPending));
-  await listen('quit-request', () => safely(async () => { await editor?.flush(); await invoke('quit'); }));
+  await listen('quit-request', () => safely(quitApp));
   await listen('export-progress', e => { if (editor?.progress) editor.progress.value = e.payload; });
   await listen('ui-error', e => message(e.payload));
   const data = await invoke('bootstrap'); settings = data.settings; displays = data.displays; selectedDisplay = displays[0]?.id; systemDevices = data.system_devices; micDevices = data.microphone_devices; recordings = data.recordings;

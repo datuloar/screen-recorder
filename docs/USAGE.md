@@ -23,6 +23,16 @@ FPS, target bitrate, cursor, countdown and audio devices are configured in Setti
 
 The main window hides when recording begins. The floating panel shows elapsed recorded time, pause, stop and expand. Paused time is excluded. Closing the panel expands the main window without stopping; **Compact controls** opens the panel again.
 
+## Startup and tray
+
+Enable **Settings → Launch at login** and save settings to start Screen Recorder quietly after signing in. The app registers only for your current user. Windows uses a user Run entry; macOS uses a user LaunchAgent. The operating system can disable background apps separately; registration alone does not confirm permission to run.
+
+Settings reads the actual registration each time you open it. **Refresh login status** checks again after an external change. If the entry points to a different copy, save settings with launch at login enabled to register the current executable. Keep the extracted Windows folder or installed Mac app in a stable location.
+
+**Start minimized to tray** also controls ordinary launches after the first run. A second launch brings back the running instance. First-run setup, startup errors, an explicitly opened video and interrupted recordings needing recovery always show the main window, even with `--background`.
+
+Closing the main window pauses preview and saves current edits before hiding it. If saving fails, the window stays open with the edits available. During recording, closing the main window returns to the floating controls. Use **Quit** to exit; recording or export must finish first. On Windows, click the tray icon to reopen the window; right-click opens its menu. On macOS, click the menu bar icon for commands. A conflicting shortcut leaves the tray available so you can change the shortcut in Settings.
+
 ## Editing with the mouse
 
 Click the ruler to place the playhead. Drag across the clips to select a range; drag either selection handle to refine it. Clicking a clip selects that clip. The ruler shows time in the edited video; clip captions show times in the source.
