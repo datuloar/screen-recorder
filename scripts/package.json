@@ -1,0 +1,6 @@
+{
+  "name": "screen-recorder-browser-checks",
+  "private": true,
+  "scripts": { "test:ui": "node test-ui.cjs" },
+  "devDependencies": { "playwright": "1.62.1" }
+}

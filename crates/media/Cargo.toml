@@ -1,0 +1,13 @@
+[package]
+name = "recorder-media"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+recorder-core.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile = "3"
+fs2 = "0.4"

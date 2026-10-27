@@ -1,0 +1,43 @@
+{
+  "binary_sha256": "6e59ad8c2950289c50cc71755b3756bccb10453fffd1b6ed0dbd5470c5b45310",
+  "system": "Windows-11-10.0.26200-SP0",
+  "processor": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+  "logical_processors": 16,
+  "scope": "Native video capture only; no UI or audio; observed desktop workload",
+  "runs": [
+    {
+      "requested_fps": 30,
+      "requested_seconds": 20,
+      "size": "1920x1080",
+      "wall_seconds": 20.716,
+      "cpu_seconds": 0.953,
+      "cpu_percent_one_core": 4.6,
+      "cpu_percent_machine": 0.29,
+      "peak_working_set_mib": 81.25,
+      "video_duration": "20.000000",
+      "video_fps": "30/1",
+      "video_bit_rate": "3014888",
+      "requested_bit_rate": 8000000,
+      "decoded_frames": "600",
+      "bytes": 7548518,
+      "recorder_output": "Frames: 600\nEncoder: Some(\"Media Foundation hardware H.264\")\nDropped frames: 0"
+    },
+    {
+      "requested_fps": 60,
+      "requested_seconds": 20,
+      "size": "1920x1080",
+      "wall_seconds": 20.603,
+      "cpu_seconds": 1.516,
+      "cpu_percent_one_core": 7.36,
+      "cpu_percent_machine": 0.46,
+      "peak_working_set_mib": 81.08,
+      "video_duration": "20.000000",
+      "video_fps": "60/1",
+      "video_bit_rate": "7696267",
+      "requested_bit_rate": 8000000,
+      "decoded_frames": "1200",
+      "bytes": 19261564,
+      "recorder_output": "Frames: 1200\nEncoder: Some(\"Media Foundation hardware H.264\")\nDropped frames: 0"
+    }
+  ]
+}

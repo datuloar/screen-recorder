@@ -1,0 +1,13 @@
+/target/
+/dist/
+/vendor/
+*.partial.mp4
+*.mp4
+*.mov
+*.mkv
+*.wav
+*.log
+.DS_Store
+__pycache__/
+/apps/desktop/gen/
+node_modules/

@@ -1,0 +1,25 @@
+[package]
+name = "screen-recorder"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+recorder-core.workspace = true
+recorder-platform.workspace = true
+recorder-media.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+tauri = { version = "=2.12.5", features = ["protocol-asset", "custom-protocol"] }
+tauri-plugin-single-instance = "=2.5.3"
+serde.workspace = true
+fs2 = "0.4"
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync"] }
+directories = "6"
+rfd = "0.17"
+open = "5"
+global-hotkey = "=0.9.0"
+tray-icon = { version = "=0.26.1", default-features = false }
+
+[build-dependencies]
+tauri-build = "2"
