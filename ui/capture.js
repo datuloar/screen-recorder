@@ -41,13 +41,20 @@ async function refresh() {
 }
 async function command(name) {
   if (pending) return;
+  const focused = document.activeElement;
   pending = true; report(); render(status);
   try {
     await invoke(name);
     if (name === 'stop_capture') stopping = true;
     await refresh();
   } catch (e) { report(e); retry.hidden = false; }
-  finally { pending = false; render(status); }
+  finally {
+    pending = false; render(status);
+    if (focused?.isConnected && [document.body, document.documentElement].includes(document.activeElement)) {
+      if (!focused.disabled && [pause, stop].includes(focused)) focused.focus();
+      else if ([pause, stop].includes(focused)) phase.focus();
+    }
+  }
 }
 pause.onclick = () => command('pause_capture');
 stop.onclick = () => command('stop_capture');

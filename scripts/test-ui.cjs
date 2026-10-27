@@ -439,7 +439,9 @@ async function fixture() {
       await page.evaluate(()=>{qa.status={phase:'recording',elapsed_ms:65000};qa.emit('capture-status',qa.status);});
       assert.equal(await page.locator('#capture-time').innerText(),'01:05');
       await page.locator('#capture-pause').focus();await page.keyboard.press('Enter');await page.getByText('Paused',{exact:true}).waitFor();
-      await page.waitForFunction(()=>!document.querySelector('#capture-pause').disabled);await page.keyboard.press('Space');await page.getByText('Recording',{exact:true}).waitFor();
+      await page.waitForFunction(()=>!document.querySelector('#capture-pause').disabled);
+      assert.equal(await page.evaluate(()=>document.activeElement.id),'capture-pause');
+      await page.keyboard.press('Space');await page.getByText('Recording',{exact:true}).waitFor();
       await page.evaluate(()=>qa.fail='pause_capture');await click('Pause');await page.getByText('Reconnect',{exact:true}).waitFor();
       assert.ok((await page.locator('#capture-error').innerText()).includes('Test:'));assert.equal(await page.locator('#capture-stop').isEnabled(),true);
       await click('Reconnect');assert.equal(await page.locator('#capture-error').isVisible(),false);assert.equal(await page.evaluate(()=>document.activeElement.id),'capture-phase');
